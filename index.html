@@ -3215,542 +3215,6 @@
                 },
             }
         </script>
-        <script>
-            var waitSomeTime = num => new Promise( resolve => setTimeout( resolve, num ) );
-            var bytesToHex = bytes => bytes.reduce( ( str, byte ) => str + byte.toString( 16 ).padStart( 2, "0" ), "" );
-            function convertHMS( value ) {
-                if ( value < 0 ) value = 0;
-                var sec = parseInt(value, 10); // convert value to number if it's string
-                var years = Math.floor(sec / 31536000); // get years
-                var months = Math.floor((sec - (years * 31536000)) / 2592000); // get months
-                var days = Math.floor((sec - (years * 31536000) - (months * 2592000)) / 86400); // get days
-                var hours = Math.floor((sec - (years * 31536000) - (months * 2592000) - (days * 86400)) / 3600); // get hours
-                var minutes = Math.floor((sec - (years * 31536000) - (months * 2592000) - (days * 86400) - (hours * 3600)) / 60); // get minutes
-                var seconds = sec - (years * 31536000) - (months * 2592000) - (days * 86400) - (hours * 3600) - (minutes * 60); //  get seconds
-                var yearsstring = (years != 1) ? `years`:`year`;
-                var monthsstring = (months != 1) ?  `months`:`month`;
-                var daysstring = (days != 1) ? `days`:`day`;
-                var hoursstring = (hours != 1) ? `hours`:`hour`;
-                var minutesstring = (minutes != 1) ? `minutes`:`minute`;
-                var secondsstring = (seconds != 1) ? `seconds`:`second`;
-                return `${days} ${daysstring} ${minutes} ${minutesstring} ${seconds} seconds`;
-            }
-            var hexToText = hex => {
-                var bytes = new Uint8Array( Math.ceil( hex.length / 2 ) );
-                var i; for ( i=0; i<hex.length; i++ ) bytes[ i ] = parseInt( hex.substr( i * 2, 2 ), 16 );
-                var text = new TextDecoder().decode( bytes );
-                return text;
-            }
-            var textToHex = text => {
-                var encoded = new TextEncoder().encode( text );
-                return Array.from( encoded )
-                    .map( x => x.toString( 16 ).padStart( 2, "0" ) )
-                    .join( "" );
-            }
-            var shuffle = array => {
-                var secureRandom = () => Number( `0.${parseInt( bytesToHex( window.crypto.getRandomValues( new Uint8Array( 7 ) ) ), 16 )}` );
-                array = JSON.parse( JSON.stringify( array ) );
-                var currentIndex = array.length, randomIndex;
-                // While there remain elements to shuffle.
-                while ( currentIndex > 0 ) {
-                    // Pick a remaining element.
-                    randomIndex = Math.floor( secureRandom() * currentIndex );
-                    currentIndex--;
-                    // And swap it with the current element.
-                    [ array[ currentIndex ], array[ randomIndex ] ] = [
-                        array[ randomIndex ], array[ currentIndex ]
-                    ];
-                }
-                return array;
-            }
-            var isValidAddress = address => {
-                try {
-                    return !!tapscript.Address.decode( address ).script;
-                } catch( e ) {return;}
-                return;
-            }
-            var isValidBitcoinKey = key => {
-                if ( key.length != 64 || key.length != 66 ) return;
-                if ( key.length === 64 ) key = "02" + key;
-                try {
-                    return !!nobleSecp256k1.Point.fromCompressedHex( hexToBytes( key ) )
-                } catch ( e ) {
-                    return;
-                }
-            }
-            var whosHereCleaner = async () => {
-                var now = Math.floor( Date.now() / 1000 );
-                Object.keys( whos_here ).forEach( participant => {
-                    if ( now - whos_here[ participant ] > 30 ) delete whos_here[ participant ];
-                });
-                if ( Object.keys( whos_here ).length < 2 ) $( '.participant_count' ).innerText = `1 (just you)`;
-                else $( '.participant_count' ).innerText = Object.keys( whos_here ).length;
-                if ( params.hasOwnProperty( "admin" ) ) {
-                    if ( !Object.keys( whos_here ).length ) $( '.participant_count' ).innerText = `0 (it's just you)`;
-                    if ( Object.keys( whos_here ).length === 1 ) $( '.participant_count' ).innerText = 1;
-                }
-                await waitSomeTime( 1000 );
-                whosHereCleaner();
-            }
-            var startSigning = async official_peers_and_utxos_list => {
-                var peers_and_utxos = JSON.parse( official_peers_and_utxos_list );
-                var peers = peers_and_utxos.value.randomized_peers;
-                var utxos = peers_and_utxos.value.utxos_for_protocol;
-                var sats_per_byte = peers_and_utxos.value.sats_per_byte;
-                var change_address = peers_and_utxos.value.change_address;
-
-                // Have every party insert the admin’s pubkey at the top of the pubkeys list
-                peers.unshift( routing_node );
-                all_peers = JSON.parse( JSON.stringify( peers ) );
-
-                // Have every party independently validate that the list has no repeats
-                var duplicates = peers.filter( ( item, index ) => peers.indexOf( item ) !== index );
-                if ( duplicates.length ) return alert( `aborting because the admin scammed you by including some people twice in the multisig. Your money is probably gone forever.` );
-                // Have every party independently validate that their pubkey is in the list
-                if ( !peers.includes( pubkey ) ) return alert( `aborting because the admin scammed you by not including you in the multisig. Your money is probably gone forever.` );
-
-                // Have every party independently validate that all pubkeys in the list are valid
-                var all_keys_are_valid = true;
-                peers.forEach( key => {
-                    if ( !isValidBitcoinKey( key ) ) all_keys_are_valid = false;
-                });
-
-                // TODO: Have every party independently validate that those utxos exist
-                // Have every party independently validate that those utxos are in segwit addresses (v0 or v1)
-                var all_addys_are_segwit = true;
-                var addys_in_utxo_list = [];
-                utxos.forEach( utxo => addys_in_utxo_list.push( utxo[ "addy" ] ) );
-                addys_in_utxo_list.forEach( addy => {
-                    if ( !addy.startsWith( "bc1" ) && !addy.startsWith( "tb1" ) && !addy.startsWith( "bcrt1" ) ) all_addys_are_segwit = false;
-                });
-                if ( !all_addys_are_segwit ) return alert( `aborting because the admin scammed you by not using segwit addresses to fund the multisig, which means anyone can render all signatures invalid while the funding transaction is still in the mempool. Your money is probably gone forever.` );
-
-                // Have every party independently validate that the utxos contain enough money to fund the multisig
-                var required_sum = ( channel_size * peers.length ) + ( amount_per_user_to_cover_p2a_costs * peers.length ) + 830;
-                var actual_sum = 0;
-                utxos.forEach( utxo => actual_sum = actual_sum + utxo[ "amnt" ] );
-                if ( actual_sum < required_sum ) return alert( `aborting because the admin scammed you by not providing enough money to fund the multisig, which means the funding transaction won't be valid. Your money is probably gone forever.` );
-
-                // Have every party independently validate that the feerate chosen is sufficient
-                // TODO: actually check a feerate source and ensure the feerate chosen is at or above the fast-track option
-                if ( sats_per_byte < 1 ) return alert( `aborting because the admin scammed you by telling you to use an insufficient feerate, which means the funding transaction will probably never get mined. Your money is probably gone forever.` );
-
-                // Have every party independently validate that the change address is valid
-                if ( !isValidAddress( change_address ) ) return alert( `aborting because the admin scammed you by telling you to send their change to an invalid bitcoin address, which means the funding transaction won't be valid. Your money is probably gone forever.` );
-
-                // Have every party independently create an n of n multisig owned by the pubkeys mentioned in the first bullet point of this section
-                peers.forEach( ( key, index ) => script.push( key, "OP_CHECKSIGVERIFY" ) );
-                script.pop();
-                script.push( "OP_CHECKSIG" );
-                scripts.push( script );
-                tree = scripts.map( s => tapscript.Tap.encodeScript( s ) );
-                var tapleaf = tree[ 0 ];
-                var [ tpubkey ] = tapscript.Tap.getPubKey( backup_pubkey, { target: tapleaf, tree });
-                multisig = tapscript.Address.p2tr.fromPubKey( tpubkey, address_type );
-
-                // Have every party independently create the 1-or-2 output transaction depositing the right amount of money into the multisig and giving the change, if any, back to the admin
-                var vin = [];
-                utxos.forEach( utxo => {
-                    vin.push({
-                        txid: utxo[ "txid" ],
-                        vout: utxo[ "vout" ],
-                        prevout: {
-                            value: utxo[ "amnt" ],
-                            scriptPubKey: tapscript.Address.toScriptPubKey( utxo[ "addy" ] ),
-                        }
-                    });
-                });
-                var change_amnt = actual_sum - required_sum;
-                var vout = [{
-                    value: required_sum - 830,
-                    scriptPubKey: tapscript.Address.toScriptPubKey( multisig ),
-                }];
-                // TODO: ensure you apply the tx fee per the feerate value
-                if ( change_amnt >= 830 ) vout.push({
-                    value: change_amnt - 500,
-                    scriptPubKey: tapscript.Address.toScriptPubKey( change_address ),
-                });
-                funding_tx = tapscript.Tx.create({
-                    vin,
-                    vout,
-                });
-                var num_of_users = peers.length;
-
-                // Have every party prepare the midstate scripts
-                var i; for ( i=0; i<num_of_users; i++ ) {
-                    var scripts_for_this_midstate = [];
-                    var j; for ( j=0; j<num_of_users; j++ ) {
-                        var midstate_script = JSON.parse( JSON.stringify( script ) );
-                        scripts_for_this_midstate.push( midstate_script );
-                    }
-                    midstate_scripts.push( scripts_for_this_midstate );
-                }
-
-                // Have every party prepare the midstate addresses
-                midstate_scripts.forEach( scripts => {
-                    var midstate_tree = scripts.map( s => tapscript.Tap.encodeScript( s ) );
-                    midstate_trees.push( midstate_tree );
-                    var [ tpubkey ] = tapscript.Tap.getPubKey( backup_pubkey, { tree: midstate_tree });
-                    var midstate_address = tapscript.Address.p2tr.fromPubKey( tpubkey, address_type );
-                    midstate_addresses.push( midstate_address );
-                });
-
-                // Have every party independently create a 10 step “exit ladder” using my tornado factory protocol so that the money for each participant is guaranteed to end up in a 2 of 2 multisig “owned by” that participant’s pubkey and the admin's
-                var every_partys_2_of_2 = [];
-                peers.forEach( key => {
-                    var two_of_two_script = [ key, "OP_CHECKSIGVERIFY", routing_node, "OP_CHECKSIG" ];
-                    var two_of_two_tree = [ tapscript.Tap.encodeScript( two_of_two_script ) ];
-                    var two_of_two_addy = hedgehog.makeAddress( [ two_of_two_script ] );
-                    every_partys_2_of_2.push( two_of_two_addy );
-                });
-                // Generate n presigned txs, to which each user gets a copy
-                var funding_amount = channel_size;
-                var i; for ( i=0; i<num_of_users; i++ ) {
-                    var txid = rounds.length ? tapscript.Tx.util.getTxid( rounds[ rounds.length - 1 ] ) : tapscript.Tx.util.getTxid( funding_tx );
-                    var round = tapscript.Tx.create({
-                        version: 3,
-                        vin: [{
-                            txid,
-                            vout: rounds.length ? 2 : 0,
-                            prevout: rounds.length ? rounds[ rounds.length - 1 ].vout[ 2 ] : funding_tx.vout[ 0 ],
-                        }],
-                        vout: [{
-                            value: 240,
-                            scriptPubKey: "51024e73",
-                        },{
-                            value: funding_amount + amount_per_user_to_cover_p2a_costs - 330 - 240,
-                            scriptPubKey: tapscript.Address.toScriptPubKey( midstate_addresses[ i ] ),
-                        }],
-                    });
-                    if ( i !== num_of_users - 1 ) {
-                        round.vout.push({
-                            value: ( funding_amount * num_of_users ) + ( amount_per_user_to_cover_p2a_costs * num_of_users ) - ( funding_amount * ( i + 1 ) ) - ( amount_per_user_to_cover_p2a_costs * ( i + 1 ) ) - ( 330 * num_of_users ),
-                            scriptPubKey: tapscript.Address.toScriptPubKey( multisig ),
-                        });
-                    }
-                    if ( !i ) {
-                        var j; for ( j=0; j<num_of_users; j++ ) {
-                            round.vout.push({
-                                value: 330,
-                                scriptPubKey: tapscript.Address.toScriptPubKey( multisig ),
-                            });
-                        }
-                    }
-                    if ( !i ) {
-                        var j; for ( j=0; j<num_of_users; j++ ) {
-                            connector_utxos.push({
-                                txid: tapscript.Tx.util.getTxid( round ),
-                                vout: j + 3,
-                                prevout: round.vout[ j + 3 ],
-                            });
-                        }
-                    }
-                    var sigs = [];
-                    var tapleaf = tree[ 0 ];
-                    var sig = tapscript.Signer.taproot.sign( privkey, round, 0, { extension: tapleaf }).hex;
-                    sigs.push( sig );
-                    rounds.push( round );
-                    round_sigs.push( sigs );
-                }
-                // Have every party sign transactions allowing every other party to exit into that multisig
-                //allow each user to unilaterally exit in each round
-                //each user needs the ability to withdraw from the midstate in any round
-                //therefore, I must make n*n*n sigs -- there are n users who need to exit
-                //and n rounds to exit in, and each user, in order to exit in that round,
-                //needs n sigs
-                //each key needs to sign n*n ejection transactions
-                //the ejection transaction is different for each user
-                //in each round so let's make the other two loops
-                var totalnum = 0;
-                var i; for ( i=0; i<num_of_users; i++ ) {
-                    if ( !i ) console.log( `0 out of ${( num_of_users ** 2 ) * 2} signatures created` );
-                    //in the codeblock beginning above, i represents a round
-                    var all_ejection_sigs_for_this_round = [];
-                    var all_connector_sigs_for_this_round = [];
-                    var all_withdrawal_txids_for_this_round = [];
-                    var all_ejection_txs_for_this_round = [];
-                    var j; for ( j=0; j<num_of_users; j++ ) {
-                        //in the codeblock beginning above, j represents a user
-                        var eject_user_tx = tapscript.Tx.create({
-                            version: 3,
-                            vin: [{
-                                txid: tapscript.Tx.util.getTxid( rounds[ i ] ),
-                                vout: 1,
-                                prevout: rounds[ i ].vout[ 1 ],
-                            }],
-                            vout: [{
-                                value: 240,
-                                scriptPubKey: "51024e73",
-                            },{
-                                //note that the round made an output of funding_amount - 240
-                                //and this tx is spending that and taking out an *additional*
-                                //240 for output 0 -- so it's funding_amount - 240 - 240
-                                //todo: change the scriptPubKey to a 2 of 2 multisig with a
-                                //routing node
-                                value: funding_amount + amount_per_user_to_cover_p2a_costs - 240 - 240,
-                                scriptPubKey: tapscript.Address.toScriptPubKey( every_partys_2_of_2[ j ] ),
-                            }],
-                        });
-                        eject_user_tx.vin.push( connector_utxos[ j ] );
-                        var txid_of_this_withdrawal_tx = tapscript.Tx.util.getTxid( eject_user_tx );
-                        all_withdrawal_txids_for_this_round.push( txid_of_this_withdrawal_tx );
-                        all_ejection_txs_for_this_round.push( eject_user_tx );
-                        //I will use the tapleaf that lets one user alone leave after revealing his or her first withdrawal secret
-                        //in round 1, the tapleaf I need for the first user is midstate_trees[ 0 ][ 0 ]
-                        //in round 1, the tapleaf I need for the second user is midstate_trees[ 0 ][ 1 ]
-                        //etc.
-                        //in round 2, the tapleaf I need for the first user is midstate_trees[ 1 ][ 0 ]
-                        //in round 2, the tapleaf I need for the second user is midstate_trees[ 1 ][ 1 ]
-                        //etc.
-                        var midstate_tapleaf = midstate_trees[ i ][ j ];
-                        var connector_tapleaf = tree[ 0 ];
-                        var [ _, cblock ] = tapscript.Tap.getPubKey( backup_pubkey, { target: tapleaf, tree: midstate_trees[ i ] });
-                        var sigs_for_this_user_for_this_round = [];
-                        var connector_sigs_for_this_user_for_this_round = [];
-                        var sig = tapscript.Signer.taproot.sign( privkey, eject_user_tx, 0, { extension: midstate_tapleaf } ).hex;
-                        totalnum = totalnum + 1;
-                        console.log( `${totalnum} out of ${( num_of_users ** 2 ) * 2} signatures created` );
-                        sigs_for_this_user_for_this_round.push( sig );
-                        var connector_sig = tapscript.Signer.taproot.sign( privkey, eject_user_tx, 1, { extension: connector_tapleaf } ).hex;
-                        totalnum = totalnum + 1;
-                        console.log( `${totalnum} out of ${( num_of_users ** 2 ) * 2} signatures created` );
-                        connector_sigs_for_this_user_for_this_round.push( connector_sig );
-                        all_ejection_sigs_for_this_round.push( sigs_for_this_user_for_this_round );
-                        all_connector_sigs_for_this_round.push( connector_sigs_for_this_user_for_this_round );
-                    }
-                    if ( i === num_of_users - 1 ) console.log( 'done!' );
-                    user_ejection_sigs.push( all_ejection_sigs_for_this_round );
-                    connector_sigs.push( all_connector_sigs_for_this_round );
-                    ejection_txs.push( all_ejection_txs_for_this_round );
-                    withdrawal_txids.push( all_withdrawal_txids_for_this_round );
-                }
-                // Have every party (except the admin) give the admin their signatures and any data needed to unilaterally eject them from the multisig
-                var sigs_to_send = [];
-                round_sigs.forEach( sig_array => sigs_to_send.push( sig_array[ 0 ] ) );
-                var i; for ( i=0; i<user_ejection_sigs.length; i++ ) {
-                    var j; for ( j=0; j<user_ejection_sigs[ i ].length; j++ ) {
-                        sigs_to_send.push( user_ejection_sigs[ i ][ j ][ 0 ] );
-                    }
-                }
-                var i; for ( i=0; i<connector_sigs.length; i++ ) {
-                    var j; for ( j=0; j<connector_sigs[ i ].length; j++ ) {
-                        sigs_to_send.push( connector_sigs[ i ][ j ][ 0 ] );
-                    }
-                }
-                if ( peers[ 0 ] !== pubkey ) node.send( 'sigs', JSON.stringify( sigs_to_send ), peers[ 0 ], msg_id );
-                else all_sigs_needed_by_admin[ pubkey ] = sigs_to_send;
-                // Have every party give the admin signatures and hashes which, per my hedgehog protocol, allow the admin to create an initial state for the 2 of 2 multisig such that the admin can withdraw everything from it
-                // Then have the admin broadcast the funding transaction and the protocol is done
-            }
-            var validateAndBroadcast = async () => {
-                var num_of_round_sigs_in_each_set = all_peers.length;
-                var unsorted_sigs = JSON.parse( JSON.stringify( all_sigs_needed_by_admin ) );
-                var round_sigs = [];
-                var user_ejection_sigs = [];
-                var connector_sigs = [];
-                all_peers.forEach( peer => {
-                    round_sigs.push( [ ...unsorted_sigs[ peer ].splice( 0, all_peers.length ) ] );
-                    user_ejection_sigs.push( [ ...unsorted_sigs[ peer ].splice( 0, all_peers.length ** 2 ) ] );
-                    connector_sigs.push( [ ...unsorted_sigs[ peer ].splice( 0, all_peers.length ** 2 ) ] );
-                });
-                // console.log( 0 );
-                // console.log( round_sigs );
-                // console.log( user_ejection_sigs );
-                // console.log( connector_sigs );
-                var i; for ( i=0; i<round_sigs.length; i++ ) {
-                    var sorted = [];
-                    var j; for ( j=0; j<round_sigs.length; j++ ) sorted.push( round_sigs[ j ][ i ] );
-                    sorted_round_sigs.push( sorted );
-                }
-                var naughty_peers = [];
-                var i; for ( i=0; i<sorted_round_sigs.length; i++ ) {
-                    //i represents the round
-                    var sig_array = sorted_round_sigs[ i ];
-                    var round = rounds[ i ];
-                    var target = tree[ 0 ];
-                    var sighash = tapscript.Signer.taproot.hash( round, 0, { extension: target });
-                    var j; for ( j=0; j<sig_array.length; j++ ) {
-                        //j represents the user whose sig we are checking
-                        //and we skip checking our own
-                        if ( !j ) continue;
-                        var sig = sig_array[ j ];
-                        var is_valid = await nobleSecp256k1.schnorr.verify( sig, sighash, all_peers[ j ] );
-                        if ( !is_valid && !naughty_peers.includes( all_peers[ j ] ) ) naughty_peers.push( all_peers[ j ] );
-                    }
-                }
-                //TODO: eject any naughty peers
-                console.log( 0, `naughty_peers:`, naughty_peers.length );
-                //the following loop makes it so that the first n sig_arrays in the
-                //sorted_user_ejection_sigs array and in the sorted_connector_sigs array
-                //eject all users from the first round, in the order given by all_peers
-                //(so the first array ejects user 1, the second array ejects user 2, etc.)
-                //the second n sig_arrays eject all users from the second round, etc.
-                //this should make it easy to make buttons to eject any user from any round
-                //if we are in the first round, I can have buttons to eject user 1, user 2,
-                //etc. and each one just grabs the next sig_array and makes a tx using them
-                //when the first round is done I can discard the first n sig_arrays and keep
-                //the rest of the code the same, and keep repeating that for all rounds
-                var i; for ( i=0; i<all_peers.length ** 2; i++ ) {
-                    var sorted_1 = [];
-                    var sorted_2 = [];
-                    var j; for ( j=0; j<user_ejection_sigs.length; j++ ) {
-                        sorted_1.push( user_ejection_sigs[ j ][ i ] );
-                        sorted_2.push( connector_sigs[ j ][ i ] );
-                    }
-                    sorted_user_ejection_sigs.push( sorted_1 );
-                    sorted_connector_sigs.push( sorted_2 );
-                }
-                //now I take the sorted_user_ejection_sigs and sorted_connector_sigs and group
-                //their sig_arrays by round
-                var grouped_1 = [];
-                var grouped_2 = [];
-                var i; for ( i=0; i<all_peers.length; i++ ) {
-                    var round_group_1 = [ ...sorted_user_ejection_sigs.splice( 0, all_peers.length ) ];
-                    var round_group_2 = [ ...sorted_connector_sigs.splice( 0, all_peers.length ) ];
-                    grouped_1.push( round_group_1 );
-                    grouped_2.push( round_group_2 );
-                }
-                sorted_user_ejection_sigs = grouped_1;
-                sorted_connector_sigs = grouped_2;
-                var i; for ( i=0; i<ejection_txs.length; i++ ) {
-                    //i represents a round
-                    var sig_array_1 = sorted_user_ejection_sigs[ i ];
-                    var sig_array_2 = sorted_connector_sigs[ i ];
-                    var j; for ( j=0; j<all_peers.length; j++ ) {
-                        //j represents the user being ejected
-                        var ejection_tx = ejection_txs[ i ][ j ];
-                        var ejection_sigs_for_this_user = sig_array_1[ j ];
-                        var connector_sigs_for_this_user = sig_array_2[ j ];
-                        var midstate_tapleaf = midstate_trees[ i ][ j ];
-                        var connector_tapleaf = tree[ 0 ];
-                        var midstate_sighash = tapscript.Signer.taproot.hash( ejection_tx, 0, { extension: midstate_tapleaf });
-                        var connector_sighash = tapscript.Signer.taproot.hash( ejection_tx, 1, { extension: connector_tapleaf });
-                        var k; for ( k=0; k<ejection_sigs_for_this_user.length; k++ ) {
-                            //k represents the user whose sig we are checking
-                            //and we skip checking our own
-                            if ( !k ) continue;
-                            var sig_1 = ejection_sigs_for_this_user[ k ];
-                            var is_valid_1 = await nobleSecp256k1.schnorr.verify( sig_1, midstate_sighash, all_peers[ k ] );
-                            if ( !is_valid_1 && !naughty_peers.includes( all_peers[ k ] ) ) naughty_peers.push( all_peers[ k ] );
-                            var sig_2 = connector_sigs_for_this_user[ k ];
-                            var is_valid_2 = await nobleSecp256k1.schnorr.verify( sig_2, connector_sighash, all_peers[ k ] );
-                            if ( !is_valid_2 && !naughty_peers.includes( all_peers[ k ] ) ) naughty_peers.push( all_peers[ k ] );
-                        }
-                    }
-                }
-                //TODO: eject any naughty peers
-                console.log( 1, `naughty_peers:`, naughty_peers.length );
-                // console.log( 1 );
-                // console.log( sorted_round_sigs );
-                // console.log( sorted_user_ejection_sigs );
-                // console.log( sorted_connector_sigs );
-                var i; for ( i=0; i<all_peers.length; i++ ) $( '.ejection_buttons' ).innerHTML = $( '.ejection_buttons' ).innerHTML + `<button onclick="ejectUser( ${i} );" class="eject_user_btn">Eject user ${i + 1}</button>`;
-                showPage( 'ejection_buttons' );
-                var sig_for_funding_tx = tapscript.Signer.taproot.sign( privkey, funding_tx, 0 );
-                funding_tx.vin[ 0 ].witness = [ sig_for_funding_tx ];
-                var txhex = tapscript.Tx.encode( funding_tx ).hex;
-                console.log( 'broadcast this:' );
-                console.log( txhex );
-            }
-            var ejectUser = e => {
-                // var user = Number( e.target.getAttribute( "data-usernum" ) );
-                // e.target.parentElement.parentElement.style.backgroundColor = "pink";
-                // e.target.parentElement.parentElement.getElementsByClassName( "off_chain_balance" )[ 0 ].innerText = 0;
-                // e.target.parentElement.parentElement.getElementsByClassName( "on_chain_balance" )[ 0 ].innerText = funding_amount;
-                // e.target.disabled = true;
-                var user = e;
-                var round = current_round;
-                var tapleaf = tree[ 0 ];
-                var [ _, cblock ] = tapscript.Tap.getPubKey( backup_pubkey, { target: tapleaf, tree });
-                rounds[ round ].vin[ 0 ].witness = [ ...sorted_round_sigs[ round ].reverse(), scripts[ 0 ], cblock ];
-
-                //to spend from the user's branch, get a utxo that you can pay the mining fee with
-                var admin_addy = tapscript.Address.fromScriptPubKey( [ 1, pubkey ], address_type );
-                var fee_for_round = 2 * all_peers.length * average_bytesize_of_each_users_input;
-                console.log( `please send ${fee_for_round} sats to this address:` );
-                console.log( admin_addy );
-                var txid2 = prompt( `You are about to eject the user you selected. Please send ${fee_for_round} sats to the address in your console so that your user can pay the mining fee for their exit transaction, then enter the txid of your deposit` );
-                var vout2 = Number( prompt( `and the vout` ) );
-                var amnt2 = Number( prompt( `and the amount` ) );
-
-                var round_fee_tx = tapscript.Tx.create({
-                    version: 3,
-                    vin: [{
-                        txid: tapscript.Tx.util.getTxid( rounds[ round ] ),
-                        vout: 0,
-                        prevout: rounds[ round ].vout[ 0 ],
-                    },{
-                        txid: txid2,
-                        vout: vout2,
-                        prevout: {
-                            value: amnt2,
-                            scriptPubKey: [ 1, pubkey ],
-                        }
-                    }],
-                    vout: [{
-                        value: ( all_peers.length * average_bytesize_of_each_users_input ) - 240,
-                        scriptPubKey: [ 1, pubkey ],
-                    }],
-                });
-
-                //sign for the input that pays the round fee
-                var sig = tapscript.Signer.taproot.sign( privkey, round_fee_tx, 1 ).hex;
-                round_fee_tx.vin[ 1 ].witness = [ sig ];
-
-                var eject_user_tx = ejection_txs[ round ][ user ];
-                var eject_user_sigs = sorted_user_ejection_sigs[ round ][ user ].reverse();
-                var my_connector_sigs = sorted_connector_sigs[ round ][ user ].reverse();
-                var tapleaf = midstate_trees[ round ][ user ];
-                var [ _, cblock ] = tapscript.Tap.getPubKey( backup_pubkey, { target: tapleaf, tree: midstate_trees[ round ] });
-                eject_user_tx.vin[ 0 ].witness = [ ...eject_user_sigs, midstate_scripts[ round ][ user ], cblock ];
-                var [ _, cblock ] = tapscript.Tap.getPubKey( backup_pubkey, { target: tree[ 0 ], tree: tree });
-                eject_user_tx.vin[ 1 ].witness = [ ...my_connector_sigs, scripts[ 0 ], cblock ];
-
-                var exit_fee_tx = tapscript.Tx.create({
-                    version: 3,
-                    vin: [{
-                        txid: tapscript.Tx.util.getTxid( eject_user_tx ),
-                        vout: 0,
-                        prevout: eject_user_tx.vout[ 0 ],
-                    },{
-                        txid: tapscript.Tx.util.getTxid( round_fee_tx ),
-                        vout: 0,
-                        prevout: round_fee_tx.vout[ 0 ],
-                    }],
-                    vout: [{
-                        value: 0,
-                        scriptPubKey: [ "OP_RETURN", "" ],
-                    }],
-                });
-
-                //sign for the input that pays the exit fee
-                var sig = tapscript.Signer.taproot.sign( privkey, exit_fee_tx, 1 ).hex;
-                exit_fee_tx.vin[ 1 ].witness = [ sig ];
-
-                //show the admin the raw transaction hex for creating the midstate
-                var txhex = tapscript.Tx.encode( rounds[ round ] ).hex;
-                console.log( `broadcast this round_${round} tx that lets any user leave:` );
-                console.log( txhex );
-
-                //show the admin the raw transaction hex for paying the round fee
-                var txhex = tapscript.Tx.encode( round_fee_tx ).hex;
-                console.log( `broadcast this round_fee_tx tx that pays the fee for this round:` );
-                console.log( txhex );
-                console.log( `then wait for the round transaction and the round_fee_tx to confirm` );
-
-                //show the admin the raw transaction hex for ejecting whoever they picked to eject
-                var txhex = tapscript.Tx.encode( eject_user_tx ).hex;
-                console.log( `broadcast this eject_user_tx that ejects the user you selected:` );
-                console.log( txhex );
-
-                //show the admin the raw transaction hex for paying the exit fee
-                var txhex = tapscript.Tx.encode( exit_fee_tx ).hex;
-                console.log( `broadcast this exit_fee_tx tx that pays the fee for the eject_user_tx:` );
-                console.log( txhex );
-                current_round = round + 1;
-                $$( '.eject_user_btn' )[ user ].disabled = true;
-            }
-        </script>
         <style>
             * {
                 box-sizing: border-box;
@@ -3836,48 +3300,649 @@
         </div>
         <div class="ejection_buttons admin_only hidden"></div>
         <script>
-            var whos_here = {}
-            var who_should_pay = {}
-            var all_peers = [];
-            var ceremony_started = false;
-            var channel_cost = 1000;
-            var channel_size = 100_000;
-            var minimum = 3;
-            var maximum = 20;
-            var address_type = "regtest";
-            var relays = ["wss://nostrue.com"];
-            var privkey = bytesToHex( window.crypto.getRandomValues( new Uint8Array( 32 ) ) );
-            if ( params[ "privkey" ] ) privkey = params[ "privkey" ];
-            var pubkey = nobleSecp256k1.getPublicKey( privkey, true ).substring( 2 );
-            var routing_node = pubkey;
-            var scripts = [];
-            var script = [];
-            var tree = [];
-            var multisig = null;
-            var backup_pubkey = "a".repeat( 64 );
-            var funding_tx = null;
-            var rounds = [];
-            var ejection_txs = [];
-            var round_sigs = [];
-            var midstate_scripts = [];
-            var midstate_trees = [];
-            var midstate_addresses = [];
-            var connector_utxos = [];
-            var user_ejection_sigs = [];
-            var connector_sigs = [];
-            var withdrawal_txids = [];
-            var all_sigs_needed_by_admin = {}
-            var sorted_round_sigs = [];
-            var sorted_user_ejection_sigs = [];
-            var sorted_connector_sigs = [];
-            var current_round = 0;
-            var amount_per_user_to_cover_p2a_costs = 240 * 2;
-            var average_bytesize_of_each_users_input = 200;
-            if ( params.hasOwnProperty( "routing_node" ) ) routing_node = params.routing_node;
-            var node = nostr_p2p( relays, privkey );
-            var msg_id = null;
-            $( '.channel_cost' ).innerText = channel_cost;
-            $( '.channel_size' ).innerText = channel_size.toLocaleString();
+            var hedgehog_factory = {
+                state: {},
+                waitSomeTime: num => new Promise( resolve => setTimeout( resolve, num ) ),
+                hexToBytes: hex => Uint8Array.from( hex.match( /.{1,2}/g ).map( byte => parseInt( byte, 16 ) ) ),
+                bytesToHex: bytes => bytes.reduce( ( str, byte ) => str + byte.toString( 16 ).padStart( 2, "0" ), "" ),
+                convertHMS: value => {
+                    if ( value < 0 ) value = 0;
+                    var sec = parseInt(value, 10); // convert value to number if it's string
+                    var years = Math.floor(sec / 31536000); // get years
+                    var months = Math.floor((sec - (years * 31536000)) / 2592000); // get months
+                    var days = Math.floor((sec - (years * 31536000) - (months * 2592000)) / 86400); // get days
+                    var hours = Math.floor((sec - (years * 31536000) - (months * 2592000) - (days * 86400)) / 3600); // get hours
+                    var minutes = Math.floor((sec - (years * 31536000) - (months * 2592000) - (days * 86400) - (hours * 3600)) / 60); // get minutes
+                    var seconds = sec - (years * 31536000) - (months * 2592000) - (days * 86400) - (hours * 3600) - (minutes * 60); //  get seconds
+                    var yearsstring = (years != 1) ? `years`:`year`;
+                    var monthsstring = (months != 1) ?  `months`:`month`;
+                    var daysstring = (days != 1) ? `days`:`day`;
+                    var hoursstring = (hours != 1) ? `hours`:`hour`;
+                    var minutesstring = (minutes != 1) ? `minutes`:`minute`;
+                    var secondsstring = (seconds != 1) ? `seconds`:`second`;
+                    return `${days} ${daysstring} ${minutes} ${minutesstring} ${seconds} seconds`;
+                },
+                hexToText: hex => {
+                    var bytes = new Uint8Array( Math.ceil( hex.length / 2 ) );
+                    var i; for ( i=0; i<hex.length; i++ ) bytes[ i ] = parseInt( hex.substr( i * 2, 2 ), 16 );
+                    var text = new TextDecoder().decode( bytes );
+                    return text;
+                },
+                textToHex: text => {
+                    var encoded = new TextEncoder().encode( text );
+                    return Array.from( encoded )
+                        .map( x => x.toString( 16 ).padStart( 2, "0" ) )
+                        .join( "" );
+                },
+                shuffle: array => {
+                    var secureRandom = () => Number( `0.${parseInt( hedgehog_factory.bytesToHex( window.crypto.getRandomValues( new Uint8Array( 7 ) ) ), 16 )}` );
+                    array = JSON.parse( JSON.stringify( array ) );
+                    var currentIndex = array.length, randomIndex;
+                    // While there remain elements to shuffle.
+                    while ( currentIndex > 0 ) {
+                        // Pick a remaining element.
+                        randomIndex = Math.floor( secureRandom() * currentIndex );
+                        currentIndex--;
+                        // And swap it with the current element.
+                        [ array[ currentIndex ], array[ randomIndex ] ] = [
+                            array[ randomIndex ], array[ currentIndex ]
+                        ];
+                    }
+                    return array;
+                },
+                isValidAddress: address => {
+                    try {
+                        return !!tapscript.Address.decode( address ).script;
+                    } catch( e ) {return;}
+                    return;
+                },
+                isValidBitcoinKey: key => {
+                    if ( key.length != 64 && key.length != 66 ) return;
+                    if ( key.length === 64 ) key = "02" + key;
+                    try {
+                        return !!nobleSecp256k1.Point.fromCompressedHex( hedgehog_factory.hexToBytes( key ) );
+                    } catch ( e ) {
+                        return;
+                    }
+                },
+                init: state_id => {
+                    hedgehog_factory.state[ state_id ] = {
+                        whos_here: {},
+                        who_should_pay: {},
+                        all_peers: [],
+                        ceremony_started: false,
+                        channel_cost: 1000,
+                        channel_size: 100_000,
+                        minimum: 3,
+                        maximum: 20,
+                        address_type: "regtest",
+                        relays: ["wss://nostrue.com"],
+                        privkey: hedgehog_factory.bytesToHex( window.crypto.getRandomValues( new Uint8Array( 32 ) ) ),
+                        pubkey: null,
+                        scripts: [],
+                        script: [],
+                        tree: [],
+                        multisig: null,
+                        backup_pubkey: "a".repeat( 64 ),
+                        funding_tx: null,
+                        rounds: [],
+                        ejection_txs: [],
+                        round_sigs: [],
+                        midstate_scripts: [],
+                        midstate_trees: [],
+                        midstate_addresses: [],
+                        connector_utxos: [],
+                        user_ejection_sigs: [],
+                        connector_sigs: [],
+                        withdrawal_txids: [],
+                        all_sigs_needed_by_admin: {},
+                        sorted_round_sigs: [],
+                        sorted_user_ejection_sigs: [],
+                        sorted_connector_sigs: [],
+                        current_round: 0,
+                        amount_per_user_to_cover_p2a_costs: 240 * 2,
+                        average_bytesize_of_each_users_input: 200,
+                        routing_node: null,
+                        msg_id: null,
+                        node: null,
+                    }
+                    var state = hedgehog_factory.state[ state_id ];
+                    if ( params[ "privkey" ] ) state.privkey = params[ "privkey" ];
+                    state.pubkey = nobleSecp256k1.getPublicKey( state.privkey, true ).substring( 2 );
+                    state.routing_node = params.hasOwnProperty( "routing_node" ) ? params.routing_node : state.pubkey;
+                    state.node = nostr_p2p( state.relays, state.privkey );
+                    $( '.channel_cost' ).innerText = state.channel_cost;
+                    $( '.channel_size' ).innerText = state.channel_size.toLocaleString();
+                },
+                whosHereCleaner: async state_id => {
+                    var now = Math.floor( Date.now() / 1000 );
+                    var whos_here = hedgehog_factory.state[ state_id ].whos_here;
+                    Object.keys( whos_here ).forEach( participant => {
+                        if ( now - whos_here[ participant ] > 30 ) delete whos_here[ participant ];
+                    });
+                    if ( Object.keys( whos_here ).length < 2 ) $( '.participant_count' ).innerText = `1 (just you)`;
+                    else $( '.participant_count' ).innerText = Object.keys( whos_here ).length;
+                    if ( params.hasOwnProperty( "admin" ) ) {
+                        if ( !Object.keys( whos_here ).length ) $( '.participant_count' ).innerText = `0 (it's just you)`;
+                        if ( Object.keys( whos_here ).length === 1 ) $( '.participant_count' ).innerText = 1;
+                    }
+                    await hedgehog_factory.waitSomeTime( 1000 );
+                    hedgehog_factory.whosHereCleaner( state_id );
+                },
+                startSigning: async ( official_peers_and_utxos_list, state_id ) => {
+                    var peers_and_utxos = JSON.parse( official_peers_and_utxos_list );
+                    var peers = peers_and_utxos.value.randomized_peers;
+                    var utxos = peers_and_utxos.value.utxos_for_protocol;
+                    var sats_per_byte = peers_and_utxos.value.sats_per_byte;
+                    var change_address = peers_and_utxos.value.change_address;
+                    var state = hedgehog_factory.state[ state_id ];
+                    var privkey = state.privkey;
+                    var pubkey = state.pubkey;
+                    var node = state.node;
+                    var address_type = state.address_type;
+                    var routing_node = state.routing_node;
+                    var backup_pubkey = state.backup_pubkey;
+                    var msg_id = state_id;
+
+                    // Have every party insert the admin’s pubkey at the top of the pubkeys list
+                    peers.unshift( routing_node );
+                    state.all_peers = JSON.parse( JSON.stringify( peers ) );
+                    var all_peers = state.all_peers;
+
+                    // Have every party independently validate that the list has no repeats
+                    var duplicates = peers.filter( ( item, index ) => peers.indexOf( item ) !== index );
+                    if ( duplicates.length ) return alert( `aborting because the admin scammed you by including some people twice in the multisig. Your money is probably gone forever.` );
+                    // Have every party independently validate that their pubkey is in the list
+                    if ( !peers.includes( pubkey ) ) return alert( `aborting because the admin scammed you by not including you in the multisig. Your money is probably gone forever.` );
+
+                    // Have every party independently validate that all pubkeys in the list are valid
+                    var all_keys_are_valid = true;
+                    peers.forEach( key => {
+                        if ( !hedgehog_factory.isValidBitcoinKey( key ) ) all_keys_are_valid = false;
+                    });
+                    if ( !all_keys_are_valid ) return alert( `aborting because the admin scammed you by sending you a list of peers with invalid keys. Your money is probably gone forever.`);
+
+                    // TODO: Have every party independently validate that those utxos exist
+                    // Have every party independently validate that those utxos are in segwit addresses (v0 or v1)
+                    var all_addys_are_segwit = true;
+                    var addys_in_utxo_list = [];
+                    utxos.forEach( utxo => addys_in_utxo_list.push( utxo[ "addy" ] ) );
+                    addys_in_utxo_list.forEach( addy => {
+                        if ( !addy.startsWith( "bc1" ) && !addy.startsWith( "tb1" ) && !addy.startsWith( "bcrt1" ) ) all_addys_are_segwit = false;
+                    });
+                    if ( !all_addys_are_segwit ) return alert( `aborting because the admin scammed you by not using segwit addresses to fund the multisig, which means anyone can render all signatures invalid while the funding transaction is still in the mempool. Your money is probably gone forever.` );
+
+                    // Have every party independently validate that the utxos contain enough money to fund the multisig
+                    var channel_size = state.channel_size;
+                    var amount_per_user_to_cover_p2a_costs = state.amount_per_user_to_cover_p2a_costs;
+                    var required_sum = ( channel_size * peers.length ) + ( amount_per_user_to_cover_p2a_costs * peers.length ) + 830;
+                    var actual_sum = 0;
+                    utxos.forEach( utxo => actual_sum = actual_sum + utxo[ "amnt" ] );
+                    if ( actual_sum < required_sum ) return alert( `aborting because the admin scammed you by not providing enough money to fund the multisig, which means the funding transaction won't be valid. Your money is probably gone forever.` );
+
+                    // Have every party independently validate that the feerate chosen is sufficient
+                    // TODO: actually check a feerate source and ensure the feerate chosen is at or above the fast-track option
+                    if ( sats_per_byte < 1 ) return alert( `aborting because the admin scammed you by telling you to use an insufficient feerate, which means the funding transaction will probably never get mined. Your money is probably gone forever.` );
+
+                    // Have every party independently validate that the change address is valid
+                    if ( !hedgehog_factory.isValidAddress( change_address ) ) return alert( `aborting because the admin scammed you by telling you to send their change to an invalid bitcoin address, which means the funding transaction won't be valid. Your money is probably gone forever.` );
+
+                    // Have every party independently create an n of n multisig owned by the pubkeys mentioned in the first bullet point of this section
+                    var scripts = state.scripts;
+                    var script = state.script;
+                    var tree = state.tree;
+                    peers.forEach( ( key, index ) => script.push( key, "OP_CHECKSIGVERIFY" ) );
+                    script.pop();
+                    script.push( "OP_CHECKSIG" );
+                    scripts.push( script );
+                    tree = scripts.map( s => tapscript.Tap.encodeScript( s ) );
+                    var tapleaf = tree[ 0 ];
+                    var [ tpubkey ] = tapscript.Tap.getPubKey( backup_pubkey, { target: tapleaf, tree });
+                    var multisig = tapscript.Address.p2tr.fromPubKey( tpubkey, address_type );
+                    state.multisig = multisig;
+
+                    // Have every party independently create the 1-or-2 output transaction depositing the right amount of money into the multisig and giving the change, if any, back to the admin
+                    var vin = [];
+                    utxos.forEach( utxo => {
+                        vin.push({
+                            txid: utxo[ "txid" ],
+                            vout: utxo[ "vout" ],
+                            prevout: {
+                                value: utxo[ "amnt" ],
+                                scriptPubKey: tapscript.Address.toScriptPubKey( utxo[ "addy" ] ),
+                            }
+                        });
+                    });
+                    var change_amnt = actual_sum - required_sum;
+                    var vout = [{
+                        value: required_sum - 830,
+                        scriptPubKey: tapscript.Address.toScriptPubKey( multisig ),
+                    }];
+                    // TODO: ensure you apply the tx fee per the feerate value
+                    if ( change_amnt >= 830 ) vout.push({
+                        value: change_amnt - 500,
+                        scriptPubKey: tapscript.Address.toScriptPubKey( change_address ),
+                    });
+                    var funding_tx = tapscript.Tx.create({
+                        vin,
+                        vout,
+                    });
+                    state.funding_tx = funding_tx;
+                    var num_of_users = peers.length;
+
+                    // Have every party prepare the midstate scripts
+                    var midstate_scripts = state.midstate_scripts;
+                    var i; for ( i=0; i<num_of_users; i++ ) {
+                        var scripts_for_this_midstate = [];
+                        var j; for ( j=0; j<num_of_users; j++ ) {
+                            var midstate_script = JSON.parse( JSON.stringify( script ) );
+                            scripts_for_this_midstate.push( midstate_script );
+                        }
+                        midstate_scripts.push( scripts_for_this_midstate );
+                    }
+
+                    // Have every party prepare the midstate addresses
+                    var midstate_trees = state.midstate_trees;
+                    var midstate_addresses = state.midstate_addresses;
+                    midstate_scripts.forEach( scripts => {
+                        var midstate_tree = scripts.map( s => tapscript.Tap.encodeScript( s ) );
+                        midstate_trees.push( midstate_tree );
+                        var [ tpubkey ] = tapscript.Tap.getPubKey( backup_pubkey, { tree: midstate_tree });
+                        var midstate_address = tapscript.Address.p2tr.fromPubKey( tpubkey, address_type );
+                        midstate_addresses.push( midstate_address );
+                    });
+
+                    // Have every party independently create a 10 step “exit ladder” using my tornado factory protocol so that the money for each participant is guaranteed to end up in a 2 of 2 multisig “owned by” that participant’s pubkey and the admin's
+                    var every_partys_2_of_2 = [];
+                    peers.forEach( key => {
+                        var two_of_two_script = [ key, "OP_CHECKSIGVERIFY", routing_node, "OP_CHECKSIG" ];
+                        var two_of_two_tree = [ tapscript.Tap.encodeScript( two_of_two_script ) ];
+                        var two_of_two_addy = hedgehog.makeAddress( [ two_of_two_script ] );
+                        every_partys_2_of_2.push( two_of_two_addy );
+                    });
+                    // Generate n presigned txs, to which each user gets a copy
+                    var funding_amount = channel_size;
+                    var rounds = state.rounds;
+                    var round_sigs = state.round_sigs;
+                    var i; for ( i=0; i<num_of_users; i++ ) {
+                        var txid = rounds.length ? tapscript.Tx.util.getTxid( rounds[ rounds.length - 1 ] ) : tapscript.Tx.util.getTxid( funding_tx );
+                        var round = tapscript.Tx.create({
+                            version: 3,
+                            vin: [{
+                                txid,
+                                vout: rounds.length ? 2 : 0,
+                                prevout: rounds.length ? rounds[ rounds.length - 1 ].vout[ 2 ] : funding_tx.vout[ 0 ],
+                            }],
+                            vout: [{
+                                value: 240,
+                                scriptPubKey: "51024e73",
+                            },{
+                                value: funding_amount + amount_per_user_to_cover_p2a_costs - 330 - 240,
+                                scriptPubKey: tapscript.Address.toScriptPubKey( midstate_addresses[ i ] ),
+                            }],
+                        });
+                        if ( i !== num_of_users - 1 ) {
+                            round.vout.push({
+                                value: ( funding_amount * num_of_users ) + ( amount_per_user_to_cover_p2a_costs * num_of_users ) - ( funding_amount * ( i + 1 ) ) - ( amount_per_user_to_cover_p2a_costs * ( i + 1 ) ) - ( 330 * num_of_users ),
+                                scriptPubKey: tapscript.Address.toScriptPubKey( multisig ),
+                            });
+                        }
+                        if ( !i ) {
+                            var j; for ( j=0; j<num_of_users; j++ ) {
+                                round.vout.push({
+                                    value: 330,
+                                    scriptPubKey: tapscript.Address.toScriptPubKey( multisig ),
+                                });
+                            }
+                        }
+                        var connector_utxos = state.connector_utxos;
+                        if ( !i ) {
+                            var j; for ( j=0; j<num_of_users; j++ ) {
+                                connector_utxos.push({
+                                    txid: tapscript.Tx.util.getTxid( round ),
+                                    vout: j + 3,
+                                    prevout: round.vout[ j + 3 ],
+                                });
+                            }
+                        }
+                        var sigs = [];
+                        var tapleaf = tree[ 0 ];
+                        var sig = tapscript.Signer.taproot.sign( privkey, round, 0, { extension: tapleaf }).hex;
+                        sigs.push( sig );
+                        rounds.push( round );
+                        round_sigs.push( sigs );
+                    }
+                    // Have every party sign transactions allowing every other party to exit into that multisig
+                    //allow each user to unilaterally exit in each round
+                    //each user needs the ability to withdraw from the midstate in any round
+                    //therefore, I must make n*n*n sigs -- there are n users who need to exit
+                    //and n rounds to exit in, and each user, in order to exit in that round,
+                    //needs n sigs
+                    //each key needs to sign n*n ejection transactions
+                    //the ejection transaction is different for each user
+                    //in each round so let's make the other two loops
+                    var totalnum = 0;
+                    var user_ejection_sigs = state.user_ejection_sigs;
+                    var connector_sigs = state.connector_sigs;
+                    var ejection_txs = state.ejection_txs;
+                    var withdrawal_txids = state.withdrawal_txids;
+                    var i; for ( i=0; i<num_of_users; i++ ) {
+                        if ( !i ) console.log( `0 out of ${( num_of_users ** 2 ) * 2} signatures created` );
+                        //in the codeblock beginning above, i represents a round
+                        var all_ejection_sigs_for_this_round = [];
+                        var all_connector_sigs_for_this_round = [];
+                        var all_withdrawal_txids_for_this_round = [];
+                        var all_ejection_txs_for_this_round = [];
+                        var j; for ( j=0; j<num_of_users; j++ ) {
+                            //in the codeblock beginning above, j represents a user
+                            var eject_user_tx = tapscript.Tx.create({
+                                version: 3,
+                                vin: [{
+                                    txid: tapscript.Tx.util.getTxid( rounds[ i ] ),
+                                    vout: 1,
+                                    prevout: rounds[ i ].vout[ 1 ],
+                                }],
+                                vout: [{
+                                    value: 240,
+                                    scriptPubKey: "51024e73",
+                                },{
+                                    //note that the round made an output of funding_amount - 240
+                                    //and this tx is spending that and taking out an *additional*
+                                    //240 for output 0 -- so it's funding_amount - 240 - 240
+                                    //todo: change the scriptPubKey to a 2 of 2 multisig with a
+                                    //routing node
+                                    value: funding_amount + amount_per_user_to_cover_p2a_costs - 240 - 240,
+                                    scriptPubKey: tapscript.Address.toScriptPubKey( every_partys_2_of_2[ j ] ),
+                                }],
+                            });
+                            eject_user_tx.vin.push( connector_utxos[ j ] );
+                            var txid_of_this_withdrawal_tx = tapscript.Tx.util.getTxid( eject_user_tx );
+                            all_withdrawal_txids_for_this_round.push( txid_of_this_withdrawal_tx );
+                            all_ejection_txs_for_this_round.push( eject_user_tx );
+                            //I will use the tapleaf that lets one user alone leave after revealing his or her first withdrawal secret
+                            //in round 1, the tapleaf I need for the first user is midstate_trees[ 0 ][ 0 ]
+                            //in round 1, the tapleaf I need for the second user is midstate_trees[ 0 ][ 1 ]
+                            //etc.
+                            //in round 2, the tapleaf I need for the first user is midstate_trees[ 1 ][ 0 ]
+                            //in round 2, the tapleaf I need for the second user is midstate_trees[ 1 ][ 1 ]
+                            //etc.
+                            var midstate_tapleaf = midstate_trees[ i ][ j ];
+                            var connector_tapleaf = tree[ 0 ];
+                            var backup_pubkey = state.backup_pubkey;
+                            var [ _, cblock ] = tapscript.Tap.getPubKey( backup_pubkey, { target: tapleaf, tree: midstate_trees[ i ] });
+                            var sigs_for_this_user_for_this_round = [];
+                            var connector_sigs_for_this_user_for_this_round = [];
+                            var sig = tapscript.Signer.taproot.sign( privkey, eject_user_tx, 0, { extension: midstate_tapleaf } ).hex;
+                            totalnum = totalnum + 1;
+                            console.log( `${totalnum} out of ${( num_of_users ** 2 ) * 2} signatures created` );
+                            sigs_for_this_user_for_this_round.push( sig );
+                            var connector_sig = tapscript.Signer.taproot.sign( privkey, eject_user_tx, 1, { extension: connector_tapleaf } ).hex;
+                            totalnum = totalnum + 1;
+                            console.log( `${totalnum} out of ${( num_of_users ** 2 ) * 2} signatures created` );
+                            connector_sigs_for_this_user_for_this_round.push( connector_sig );
+                            all_ejection_sigs_for_this_round.push( sigs_for_this_user_for_this_round );
+                            all_connector_sigs_for_this_round.push( connector_sigs_for_this_user_for_this_round );
+                        }
+                        if ( i === num_of_users - 1 ) console.log( 'done!' );
+                        user_ejection_sigs.push( all_ejection_sigs_for_this_round );
+                        connector_sigs.push( all_connector_sigs_for_this_round );
+                        ejection_txs.push( all_ejection_txs_for_this_round );
+                        withdrawal_txids.push( all_withdrawal_txids_for_this_round );
+                    }
+                    // Have every party (except the admin) give the admin their signatures and any data needed to unilaterally eject them from the multisig
+                    var sigs_to_send = [];
+                    round_sigs.forEach( sig_array => sigs_to_send.push( sig_array[ 0 ] ) );
+                    var i; for ( i=0; i<user_ejection_sigs.length; i++ ) {
+                        var j; for ( j=0; j<user_ejection_sigs[ i ].length; j++ ) {
+                            sigs_to_send.push( user_ejection_sigs[ i ][ j ][ 0 ] );
+                        }
+                    }
+                    var i; for ( i=0; i<connector_sigs.length; i++ ) {
+                        var j; for ( j=0; j<connector_sigs[ i ].length; j++ ) {
+                            sigs_to_send.push( connector_sigs[ i ][ j ][ 0 ] );
+                        }
+                    }
+                    var all_sigs_needed_by_admin = state.all_sigs_needed_by_admin;
+                    if ( peers[ 0 ] !== pubkey ) node.send( 'sigs', JSON.stringify( sigs_to_send ), peers[ 0 ], msg_id );
+                    else all_sigs_needed_by_admin[ pubkey ] = sigs_to_send;
+                    // Have every party give the admin signatures and hashes which, per my hedgehog protocol, allow the admin to create an initial state for the 2 of 2 multisig such that the admin can withdraw everything from it
+                    // Then have the admin broadcast the funding transaction and the protocol is done
+                },
+                validateAndBroadcast: async state_id => {
+                    var state = hedgehog_factory.state[ state_id ];
+                    var all_peers = state.all_peers;
+                    var sorted_round_sigs = state.sorted_round_sigs;
+                    var sorted_user_ejection_sigs = state.sorted_user_ejection_sigs;
+                    var sorted_connector_sigs = state.sorted_connector_sigs;
+                    var ejection_txs = state.ejection_txs;
+                    var midstate_trees = state.midstate_trees;
+                    var tree = state.tree;
+                    var privkey = state.privkey;
+                    var funding_tx = state.funding_tx;
+                    var rounds = state.rounds;
+                    var num_of_round_sigs_in_each_set = all_peers.length;
+                    var all_sigs_needed_by_admin = state.all_sigs_needed_by_admin;
+                    var unsorted_sigs = JSON.parse( JSON.stringify( all_sigs_needed_by_admin ) );
+                    var round_sigs = [];
+                    var user_ejection_sigs = [];
+                    var connector_sigs = [];
+                    all_peers.forEach( peer => {
+                        round_sigs.push( [ ...unsorted_sigs[ peer ].splice( 0, all_peers.length ) ] );
+                        user_ejection_sigs.push( [ ...unsorted_sigs[ peer ].splice( 0, all_peers.length ** 2 ) ] );
+                        connector_sigs.push( [ ...unsorted_sigs[ peer ].splice( 0, all_peers.length ** 2 ) ] );
+                    });
+                    // console.log( 0 );
+                    // console.log( round_sigs );
+                    // console.log( user_ejection_sigs );
+                    // console.log( connector_sigs );
+                    var i; for ( i=0; i<round_sigs.length; i++ ) {
+                        var sorted = [];
+                        var j; for ( j=0; j<round_sigs.length; j++ ) sorted.push( round_sigs[ j ][ i ] );
+                        sorted_round_sigs.push( sorted );
+                    }
+                    var naughty_peers = [];
+                    var i; for ( i=0; i<sorted_round_sigs.length; i++ ) {
+                        //i represents the round
+                        var sig_array = sorted_round_sigs[ i ];
+                        var round = rounds[ i ];
+                        var target = tree[ 0 ];
+                        var sighash = tapscript.Signer.taproot.hash( round, 0, { extension: target });
+                        var j; for ( j=0; j<sig_array.length; j++ ) {
+                            //j represents the user whose sig we are checking
+                            //and we skip checking our own
+                            if ( !j ) continue;
+                            var sig = sig_array[ j ];
+                            var is_valid = await nobleSecp256k1.schnorr.verify( sig, sighash, all_peers[ j ] );
+                            if ( !is_valid && !naughty_peers.includes( all_peers[ j ] ) ) naughty_peers.push( all_peers[ j ] );
+                        }
+                    }
+                    //TODO: eject any naughty peers
+                    console.log( 0, `naughty_peers:`, naughty_peers.length );
+                    //the following loop makes it so that the first n sig_arrays in the
+                    //sorted_user_ejection_sigs array and in the sorted_connector_sigs array
+                    //eject all users from the first round, in the order given by all_peers
+                    //(so the first array ejects user 1, the second array ejects user 2, etc.)
+                    //the second n sig_arrays eject all users from the second round, etc.
+                    //this should make it easy to make buttons to eject any user from any round
+                    //if we are in the first round, I can have buttons to eject user 1, user 2,
+                    //etc. and each one just grabs the next sig_array and makes a tx using them
+                    //when the first round is done I can discard the first n sig_arrays and keep
+                    //the rest of the code the same, and keep repeating that for all rounds
+                    var i; for ( i=0; i<all_peers.length ** 2; i++ ) {
+                        var sorted_1 = [];
+                        var sorted_2 = [];
+                        var j; for ( j=0; j<user_ejection_sigs.length; j++ ) {
+                            sorted_1.push( user_ejection_sigs[ j ][ i ] );
+                            sorted_2.push( connector_sigs[ j ][ i ] );
+                        }
+                        sorted_user_ejection_sigs.push( sorted_1 );
+                        sorted_connector_sigs.push( sorted_2 );
+                    }
+                    //now I take the sorted_user_ejection_sigs and sorted_connector_sigs and group
+                    //their sig_arrays by round
+                    var grouped_1 = [];
+                    var grouped_2 = [];
+                    var i; for ( i=0; i<all_peers.length; i++ ) {
+                        var round_group_1 = [ ...sorted_user_ejection_sigs.splice( 0, all_peers.length ) ];
+                        var round_group_2 = [ ...sorted_connector_sigs.splice( 0, all_peers.length ) ];
+                        grouped_1.push( round_group_1 );
+                        grouped_2.push( round_group_2 );
+                    }
+                    sorted_user_ejection_sigs = grouped_1;
+                    state.sorted_user_ejection_sigs = sorted_user_ejection_sigs;
+                    console.log( 0, grouped_1, sorted_user_ejection_sigs, state.sorted_user_ejection_sigs );
+                    sorted_connector_sigs = grouped_2;
+                    state.sorted_connector_sigs = sorted_connector_sigs;
+                    console.log( 1, grouped_2, sorted_connector_sigs, state.sorted_connector_sigs );
+                    var i; for ( i=0; i<ejection_txs.length; i++ ) {
+                        //i represents a round
+                        var sig_array_1 = sorted_user_ejection_sigs[ i ];
+                        var sig_array_2 = sorted_connector_sigs[ i ];
+                        var j; for ( j=0; j<all_peers.length; j++ ) {
+                            //j represents the user being ejected
+                            var ejection_tx = ejection_txs[ i ][ j ];
+                            var ejection_sigs_for_this_user = sig_array_1[ j ];
+                            var connector_sigs_for_this_user = sig_array_2[ j ];
+                            var midstate_tapleaf = midstate_trees[ i ][ j ];
+                            var connector_tapleaf = tree[ 0 ];
+                            var midstate_sighash = tapscript.Signer.taproot.hash( ejection_tx, 0, { extension: midstate_tapleaf });
+                            var connector_sighash = tapscript.Signer.taproot.hash( ejection_tx, 1, { extension: connector_tapleaf });
+                            var k; for ( k=0; k<ejection_sigs_for_this_user.length; k++ ) {
+                                //k represents the user whose sig we are checking
+                                //and we skip checking our own
+                                if ( !k ) continue;
+                                var sig_1 = ejection_sigs_for_this_user[ k ];
+                                var is_valid_1 = await nobleSecp256k1.schnorr.verify( sig_1, midstate_sighash, all_peers[ k ] );
+                                if ( !is_valid_1 && !naughty_peers.includes( all_peers[ k ] ) ) naughty_peers.push( all_peers[ k ] );
+                                var sig_2 = connector_sigs_for_this_user[ k ];
+                                var is_valid_2 = await nobleSecp256k1.schnorr.verify( sig_2, connector_sighash, all_peers[ k ] );
+                                if ( !is_valid_2 && !naughty_peers.includes( all_peers[ k ] ) ) naughty_peers.push( all_peers[ k ] );
+                            }
+                        }
+                    }
+                    //TODO: eject any naughty peers
+                    console.log( 1, `naughty_peers:`, naughty_peers.length );
+                    // console.log( 1 );
+                    // console.log( sorted_round_sigs );
+                    // console.log( sorted_user_ejection_sigs );
+                    // console.log( sorted_connector_sigs );
+                    var i; for ( i=0; i<all_peers.length; i++ ) $( '.ejection_buttons' ).innerHTML = $( '.ejection_buttons' ).innerHTML + `<button onclick="hedgehog_factory.ejectUser( ${i}, '${state_id}' );" class="eject_user_btn">Eject user ${i + 1}</button>`;
+                    showPage( 'ejection_buttons' );
+                    var sig_for_funding_tx = tapscript.Signer.taproot.sign( privkey, funding_tx, 0 );
+                    funding_tx.vin[ 0 ].witness = [ sig_for_funding_tx ];
+                    var txhex = tapscript.Tx.encode( funding_tx ).hex;
+                    console.log( 'broadcast this:' );
+                    console.log( txhex );
+                },
+                ejectUser: ( user, state_id ) => {
+                    var state = hedgehog_factory.state[ state_id ];
+                    var round = state.current_round;
+                    var tree = state.tree;
+                    var backup_pubkey = state.backup_pubkey;
+                    var rounds = state.rounds;
+                    var sorted_round_sigs = state.sorted_round_sigs;
+                    var sorted_user_ejection_sigs = state.sorted_user_ejection_sigs;
+                    console.log( 1, sorted_user_ejection_sigs );
+                    var sorted_connector_sigs = state.sorted_connector_sigs;
+                    var scripts = state.scripts;
+                    var address_type = state.address_type;
+                    var all_peers = state.all_peers;
+                    var average_bytesize_of_each_users_input = state.average_bytesize_of_each_users_input;
+                    var pubkey = state.pubkey;
+                    var privkey = state.privkey;
+                    var ejection_txs = state.ejection_txs;
+                    var midstate_scripts = state.midstate_scripts;
+                    var midstate_trees = state.midstate_trees;
+                    var tapleaf = tree[ 0 ];
+                    var [ _, cblock ] = tapscript.Tap.getPubKey( backup_pubkey, { target: tapleaf, tree });
+                    rounds[ round ].vin[ 0 ].witness = [ ...sorted_round_sigs[ round ].reverse(), scripts[ 0 ], cblock ];
+                    //to spend from the user's branch, get a utxo that you can pay the mining fee with
+                    var admin_addy = tapscript.Address.fromScriptPubKey( [ 1, pubkey ], address_type );
+                    var fee_for_round = 2 * all_peers.length * average_bytesize_of_each_users_input;
+                    console.log( `please send ${fee_for_round} sats to this address:` );
+                    console.log( admin_addy );
+                    var txid2 = prompt( `You are about to eject the user you selected. Please send ${fee_for_round} sats to the address in your console so that your user can pay the mining fee for their exit transaction, then enter the txid of your deposit` );
+                    var vout2 = Number( prompt( `and the vout` ) );
+                    var amnt2 = Number( prompt( `and the amount` ) );
+
+                    var round_fee_tx = tapscript.Tx.create({
+                        version: 3,
+                        vin: [{
+                            txid: tapscript.Tx.util.getTxid( rounds[ round ] ),
+                            vout: 0,
+                            prevout: rounds[ round ].vout[ 0 ],
+                        },{
+                            txid: txid2,
+                            vout: vout2,
+                            prevout: {
+                                value: amnt2,
+                                scriptPubKey: [ 1, pubkey ],
+                            }
+                        }],
+                        vout: [{
+                            value: ( all_peers.length * average_bytesize_of_each_users_input ) - 240,
+                            scriptPubKey: [ 1, pubkey ],
+                        }],
+                    });
+
+                    //sign for the input that pays the round fee
+                    var sig = tapscript.Signer.taproot.sign( privkey, round_fee_tx, 1 ).hex;
+                    round_fee_tx.vin[ 1 ].witness = [ sig ];
+
+                    var eject_user_tx = ejection_txs[ round ][ user ];
+                    var eject_user_sigs = sorted_user_ejection_sigs[ round ][ user ].reverse();
+                    var my_connector_sigs = sorted_connector_sigs[ round ][ user ].reverse();
+                    var tapleaf = midstate_trees[ round ][ user ];
+                    var [ _, cblock ] = tapscript.Tap.getPubKey( backup_pubkey, { target: tapleaf, tree: midstate_trees[ round ] });
+                    eject_user_tx.vin[ 0 ].witness = [ ...eject_user_sigs, midstate_scripts[ round ][ user ], cblock ];
+                    var [ _, cblock ] = tapscript.Tap.getPubKey( backup_pubkey, { target: tree[ 0 ], tree: tree });
+                    eject_user_tx.vin[ 1 ].witness = [ ...my_connector_sigs, scripts[ 0 ], cblock ];
+
+                    var exit_fee_tx = tapscript.Tx.create({
+                        version: 3,
+                        vin: [{
+                            txid: tapscript.Tx.util.getTxid( eject_user_tx ),
+                            vout: 0,
+                            prevout: eject_user_tx.vout[ 0 ],
+                        },{
+                            txid: tapscript.Tx.util.getTxid( round_fee_tx ),
+                            vout: 0,
+                            prevout: round_fee_tx.vout[ 0 ],
+                        }],
+                        vout: [{
+                            value: 0,
+                            scriptPubKey: [ "OP_RETURN", "" ],
+                        }],
+                    });
+
+                    //sign for the input that pays the exit fee
+                    var sig = tapscript.Signer.taproot.sign( privkey, exit_fee_tx, 1 ).hex;
+                    exit_fee_tx.vin[ 1 ].witness = [ sig ];
+
+                    //show the admin the raw transaction hex for creating the midstate
+                    var txhex = tapscript.Tx.encode( rounds[ round ] ).hex;
+                    console.log( `broadcast this round_${round} tx that lets any user leave:` );
+                    console.log( txhex );
+
+                    //show the admin the raw transaction hex for paying the round fee
+                    var txhex = tapscript.Tx.encode( round_fee_tx ).hex;
+                    console.log( `broadcast this round_fee_tx tx that pays the fee for this round:` );
+                    console.log( txhex );
+                    console.log( `then wait for the round transaction and the round_fee_tx to confirm` );
+
+                    //show the admin the raw transaction hex for ejecting whoever they picked to eject
+                    var txhex = tapscript.Tx.encode( eject_user_tx ).hex;
+                    console.log( `broadcast this eject_user_tx that ejects the user you selected:` );
+                    console.log( txhex );
+
+                    //show the admin the raw transaction hex for paying the exit fee
+                    var txhex = tapscript.Tx.encode( exit_fee_tx ).hex;
+                    console.log( `broadcast this exit_fee_tx tx that pays the fee for the eject_user_tx:` );
+                    console.log( txhex );
+                    state.current_round = round + 1;
+                    $$( '.eject_user_btn' )[ user ].disabled = true;
+                },
+            }
             var showPage = page => {
                 $( '.schedule_signing_ceremony' ).classList.add( "hidden" );
                 $( '.ceremony_page' ).classList.add( "hidden" );
@@ -3887,6 +3952,8 @@
             if ( !params[ "ceremony" ] ) {
                 $( '.minutes_to_wait' ).value = 1;
                 $( '.nwc_string_entry_form' ).value = "";
+                var privkey = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() );
+                var relays = ["wss://nostrue.com"];
                 $( '.prep_ceremony' ).onclick = () => {
                     var nwc_string = $( '.nwc_string_entry_form' ).value;
                     try {
@@ -3897,26 +3964,29 @@
                     var minutes_to_wait = Number( $( '.minutes_to_wait' ).value );
                     var timestamp = Math.floor( Date.now() / 1000 ) + ( minutes_to_wait * 60 );
                     var timestamp_as_hex = timestamp.toString( 16 ).padStart( 8, "0" );
-                    msg_id = timestamp_as_hex + bytesToHex( window.crypto.getRandomValues( new Uint8Array( 16 - 4 ) ) );
-                    var url = window.location.protocol + "//" + window.location.hostname + window.location.pathname + `#ceremony=${msg_id}#privkey=${privkey}#admin=true#nwc_string=${textToHex( nwc_string )}`;
+                    var msg_id = timestamp_as_hex + hedgehog_factory.bytesToHex( window.crypto.getRandomValues( new Uint8Array( 16 - 4 ) ) );
+                    var url = window.location.protocol + "//" + window.location.hostname + window.location.pathname + `#ceremony=${msg_id}#privkey=${privkey}#admin=true#nwc_string=${hedgehog_factory.textToHex( nwc_string )}`;
                     window.location.href = url;
                     window.location.reload();
                 }
             }
             if ( params[ "ceremony" ] ) {
-                $( '.minimum_required' ).innerText = minimum;
+                var state_id = params[ "ceremony" ];
+                hedgehog_factory.init( state_id );
+                var state = hedgehog_factory.state[ state_id ];
+                $( '.minimum_required' ).innerText = state.minimum;
                 showPage( `ceremony_page` );
                 var loop = async future => {
                     var now = Math.floor( Date.now() / 1000 );
                     var time_til_then = future - now >= 0 ? future - now : 0;
-                    $( '.time_til_signing_ceremony' ).innerText = convertHMS( time_til_then );
-                    await waitSomeTime( 1000 );
+                    $( '.time_til_signing_ceremony' ).innerText = hedgehog_factory.convertHMS( time_til_then );
+                    await hedgehog_factory.waitSomeTime( 1000 );
                     loop( future );
                 }
                 var future = parseInt( params[ "ceremony" ].substring( 0, 8 ), 16 );
                 loop( future );
                 var listenFunction = async socket => {
-                    var subId = super_nostr.bytesToHex( crypto.getRandomValues( new Uint8Array( 8 ) ) );
+                    var subId = super_nostr.bytesToHex( window.crypto.getRandomValues( new Uint8Array( 8 ) ) );
                     var filter  = {}
                     filter.kinds = [ 52175 ];
                     filter[ "#e" ] = [ params[ "ceremony" ].padStart( 64, "0" ) ];
@@ -3927,10 +3997,14 @@
                 var handleFunction = async message => {
                     var [ type, subId, event ] = JSON.parse( message.data );
                     if ( !event || event === true ) return;
-                    if ( !ceremony_started && event.pubkey !== routing_node ) whos_here[ event.pubkey ] = Math.floor( Date.now() / 1000 );
+                    if ( !state.ceremony_started && event.pubkey !== state.routing_node ) state.whos_here[ event.pubkey ] = Math.floor( Date.now() / 1000 );
                 }
                 (async()=>{
-                    msg_id = params[ "ceremony" ];
+                    var state_id = params[ "ceremony" ];
+                    var msg_id = state_id;
+                    var state = hedgehog_factory.state[ state_id ];
+                    var all_peers = state.all_peers;
+                    var node = state.node;
                     await node.connect();
                     node.event.on( 'init', console.log( 'connected to the p2p network!' ) );
                     node.inbox.on( msg_id, msg => {
@@ -3940,47 +4014,62 @@
                         if ( !params.hasOwnProperty( "admin" ) && msg.ctx.pubkey !== params.routing_node ) return;
                         //if the admin sends the "signing_phase" message, pass it to the startSigning function
                         if ( msg.ctx.pubkey === params.routing_node && msg.tag === "signing_phase" ) {
-                            startSigning( msg.dat );
+                            hedgehog_factory.startSigning( msg.dat, state_id );
                             return;
                         }
                         //if the admin receives sigs, validate them and add them to the all_sigs_needed_by_admin object
                         if ( params.hasOwnProperty( "admin" ) && all_peers.includes( msg.ctx.pubkey ) && msg.tag === "sigs" ) {
+                            var all_sigs_needed_by_admin = state.all_sigs_needed_by_admin;
                             //if you already have all the sigs you need, ignore the message
                             if ( Object.keys( all_sigs_needed_by_admin ).length === all_peers.length ) return;
                             all_sigs_needed_by_admin[ msg.ctx.pubkey ] = JSON.parse( msg.dat );
                             //if you now have all the sigs you need, broadcast the funding tx
-                            if ( Object.keys( all_sigs_needed_by_admin ).length === all_peers.length ) validateAndBroadcast();
+                            if ( Object.keys( all_sigs_needed_by_admin ).length === all_peers.length ) hedgehog_factory.validateAndBroadcast( state_id );
                             return;
                         }
                         console.log( 'received msg:', msg.id, msg.dat );
                     });
-                    var connection = super_nostr.newPermanentConnection( relays[ 0 ], listenFunction, handleFunction );
+                    var connection = super_nostr.newPermanentConnection( state.relays[ 0 ], listenFunction, handleFunction );
                     console.log( `loading...` );
-                    await waitSomeTime( 2000 );
+                    await hedgehog_factory.waitSomeTime( 2000 );
                     console.log( `ready!` );
                     var loop = async () => {
-                        var event = await super_nostr.prepEvent( privkey, "", 52175, [ [ "e", params[ "ceremony" ].padStart( 64, "0" ) ] ] );
-                        super_nostr.sendEvent( event, relays[ 0 ] );
-                        await waitSomeTime( 25000 );
+                        var event = await super_nostr.prepEvent( state.privkey, "", 52175, [ [ "e", params[ "ceremony" ].padStart( 64, "0" ) ] ] );
+                        super_nostr.sendEvent( event, state.relays[ 0 ] );
+                        await hedgehog_factory.waitSomeTime( 25000 );
                         loop();
                     }
                     loop();
                 })();
-                whosHereCleaner();
+                hedgehog_factory.whosHereCleaner( state_id );
                 if ( params.hasOwnProperty( "admin" ) ) {
+                    var pubkey = state.pubkey;
                     $( '.ceremony_page p' ).innerText = `Start the signing ceremony before this timer runs out:`;
                     $( '.participant_count' ).parentElement.innerHTML = `How many people are here (other than you): <span class="participant_count">loading...</span>`;
                     $$( '.user_only' ).forEach( item => item.classList.add( "hidden" ) );
                     $$( '.admin_only' ).forEach( item => item.classList.remove( "hidden" ) );
                     var url = window.location.protocol + "//" + window.location.hostname + window.location.pathname + `#ceremony=${params[ "ceremony" ]}#routing_node=${pubkey}`;
                     $( '.shareable_link' ).innerText = url;
-                    var nwc_obj = nwcjs.processNWCstring( hexToText( params.nwc_string ) );
+                    var nwc_obj = nwcjs.processNWCstring( hedgehog_factory.hexToText( params.nwc_string ) );
                 }
             }
             $( '.start_signing_ceremony' ).onclick = async () => {
                 console.log( 'starting ceremony...' );
-                msg_id = params[ "ceremony" ];
-                ceremony_started = true;
+                var state_id = params[ "ceremony" ];
+                var msg_id = state_id;
+                var state = hedgehog_factory.state[ state_id ];
+                state.ceremony_started = true;
+                var whos_here = state.whos_here;
+                var node = state.node;
+                var minimum = state.minimum;
+                var who_should_pay = state.who_should_pay;
+                var all_peers = state.all_peers;
+                var channel_size = state.channel_size;
+                var amount_per_user_to_cover_p2a_costs = state.amount_per_user_to_cover_p2a_costs;
+                var pubkey = state.pubkey;
+                var maximum = state.maximum;
+                var channel_cost = state.channel_cost;
+                var address_type = state.address_type;
                 var peers = Object.keys( whos_here );
                 if ( peers.length > maximum ) {
                     //TODO: send a message to anyone who gets cut off telling them
@@ -4021,7 +4110,7 @@
                     var start_time = Math.floor( Date.now() / 1000 );
                     console.log( `in 10 seconds we will check if ${peer}'s invoice is paid` );
                     var loop = async () => {
-                        await waitSomeTime( 10 * 1000 );
+                        await hedgehog_factory.waitSomeTime( 10 * 1000 );
                         console.log( `checking if ${peer}'s invoice is paid` );
                         var now = Math.floor( Date.now() / 1000 );
                         var status_data = await nwcjs.checkInvoice( nwcjs.nwc_infos[ 0 ], invoice, delay_tolerance );
@@ -4045,10 +4134,11 @@
                 });
                 //abort if, after 60 seconds, not enough people paid to meet your minimum
                 //TODO: change the wait time to 60000
-                await waitSomeTime( 12000 );
+                await hedgehog_factory.waitSomeTime( 12000 );
                 //TODO: delete the lines below, which pretend everyone paid
                 peers.forEach( peer => who_should_pay[ peer ][ 0 ] = "paid" );
                 peers.forEach( peer => all_peers.push( peer ) );
+                var peers_to_message = JSON.parse( JSON.stringify( all_peers ) );
                 var num_who_paid = Object.keys( who_should_pay ).length;
                 Object.keys( who_should_pay ).forEach( participant => {
                     if ( who_should_pay[ participant ][ 0 ] !== "paid" ) num_who_paid = num_who_paid - 1;
@@ -4062,12 +4152,13 @@
                         type: "abort",
                         value: `Aborting because ${peers.length} people registered (which is enough because the minimum was ${minimum}) but ${minimum - num_who_paid} of them ${were_or_was}, so the number of “real” participants was less than ${minimum}, so we’ll have to try again later. Please bring more people next time.`
                     });
-                    node.relay( 'preparation_phase', msg, peers, msg_id );
+                    node.relay( 'preparation_phase', msg, peers_to_message, msg_id );
                     return;
                 }
                 console.log( 'enough paid' );
                 // Give everyone the list of participating pubkeys, sorted in random order (you got their pubkeys when they announced their presence)
-                var randomized_peers = shuffle( JSON.parse( JSON.stringify( peers ) ) );
+                var randomized_peers = hedgehog_factory.shuffle( JSON.parse( JSON.stringify( peers ) ) );
+                all_peers.push( pubkey );
                 // Give everyone the utxo data of a sufficient number of inputs to make your 1-or-2 output transaction (utxo data consists of a txid, a vout, an amount, and an address)
                 var required_sum = ( channel_size * ( randomized_peers.length + 1 ) ) + ( amount_per_user_to_cover_p2a_costs * ( randomized_peers.length + 1 ) ) + 830;
                 var admin_addy = tapscript.Address.fromScriptPubKey( [ 1, pubkey ], address_type );
@@ -4081,13 +4172,14 @@
                 // TODO: actually check a feerate source and ensure the feerate chosen is at or above the fast-track option
                 var sats_per_byte = 1;
                 // Give everyone a change address to send the change to when creating the 1-or-2 output transaction
+                //TODO: use a "real" change address
                 var change_address = "tb1phl9kvt953d9rwvwy322fjpdgf95wqvj0l9rhgfnwgknqgfcwdkwqwrfkf8";
                 var msg = JSON.stringify({
                     type: "official_peers_and_utxos_list",
                     value: { randomized_peers, utxos_for_protocol, sats_per_byte, change_address },
                 });
-                node.relay( 'signing_phase', msg, peers, msg_id );
-                startSigning( msg );
+                node.relay( 'signing_phase', msg, peers_to_message, msg_id );
+                hedgehog_factory.startSigning( msg, state_id );
             }
         </script>
     </body>
