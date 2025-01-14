@@ -6,13 +6,27 @@
         <script>var nostr_p2p = null;</script>
         <script src="https://supertestnet.github.io/hedgehog-advanced/tapscript.js"></script>
         <script src="https://supertestnet.github.io/hedgehog-advanced/rmd160.js"></script>
+        <script src="https://supertestnet.github.io/blind-sig-js/blindSigJS.js"></script>
         <script src="https://supertestnet.github.io/bitcoin-chess/js/bolt11.js"></script>
         <script src="https://supertestnet.github.io/nostr_p2p/nostr_p2p.js"></script>
         <script src="https://supertestnet.github.io/bankify/super_nostr.js"></script>
         <script src="https://supertestnet.github.io/nwcjs/nwcjs.js"></script>
         <!-- <script src="https://unpkg.com/@cmdcode/tapscript@1.5.1"></script> -->
-        <!-- <script src="https://bundle.run/browserify-cipher@1.0.1"></script> -->
         <script src="https://bundle.run/noble-secp256k1@1.2.14"></script>
+        <script>
+            // Give a blind sig to each user after they pay, then have them change their pubkey. In every subsequent message, the user should give the admin their unblinded signature. This ensures that each user can prove they are allowed in the pool but prevents the admin from knowing which member of the pool paid which admission-invoice.
+            // var secret_for_message = hedgehog_factory.bytesToHex( blindSigJS.getRand( 32 ) );
+            // var mint_pubkey = new nobleSecp256k1.Point( mint.publicKey.x, mint.publicKey.y );
+            // var mint_pubkey_hex = mint_pubkey.toHex( true );
+            // var message = new blindSigJS.bsjMsg();
+            // var B_ = await message.createBlindedMessageFromString( secret_for_message );
+            // var C_ = mint.createBlindSignature( B_ );
+            // var C_ = new nobleSecp256k1.Point( C_.x, C_.y );
+            // var {C, secret} = message.unblindSignature( C_, mint_pubkey );
+            // //C is the unblinded signature. If I give C and secret to the mint, he can derive C from the secret and compare it the C I gave him. If they match, it proves that he signed the secret without ever seeing it.
+            // var expected_C = await mint.calculateCVerify( secret );
+            // console.log( expected_C.toHex( true ) === C.toHex( true ) );
+        </script>
         <script>
             var hedgehog = {
                 network: "testnet",
@@ -3405,6 +3419,7 @@
                         routing_node: null,
                         msg_id: null,
                         node: null,
+                        initial_state_hash: null,
                     }
                     var state = hedgehog_factory.state[ state_id ];
                     if ( params[ "privkey" ] ) state.privkey = params[ "privkey" ];
@@ -3416,7 +3431,9 @@
                 },
                 whosHereCleaner: async state_id => {
                     var now = Math.floor( Date.now() / 1000 );
-                    var whos_here = hedgehog_factory.state[ state_id ].whos_here;
+                    var state = hedgehog_factory.state[ state_id ];
+                    var whos_here = state.whos_here;
+                    if ( state.ceremony_started ) return;
                     Object.keys( whos_here ).forEach( participant => {
                         if ( now - whos_here[ participant ] > 30 ) delete whos_here[ participant ];
                     });
@@ -3496,6 +3513,7 @@
                     script.push( "OP_CHECKSIG" );
                     scripts.push( script );
                     tree = scripts.map( s => tapscript.Tap.encodeScript( s ) );
+                    state.tree = tree;
                     var tapleaf = tree[ 0 ];
                     var [ tpubkey ] = tapscript.Tap.getPubKey( backup_pubkey, { target: tapleaf, tree });
                     var multisig = tapscript.Address.p2tr.fromPubKey( tpubkey, address_type );
@@ -3513,7 +3531,7 @@
                             }
                         });
                     });
-                    var change_amnt = actual_sum - required_sum;
+                    var change_amnt = actual_sum - ( required_sum - 830 );
                     var vout = [{
                         value: required_sum - 830,
                         scriptPubKey: tapscript.Address.toScriptPubKey( multisig ),
@@ -3565,6 +3583,7 @@
                     var rounds = state.rounds;
                     var round_sigs = state.round_sigs;
                     var i; for ( i=0; i<num_of_users; i++ ) {
+                        //i represents the round
                         var txid = rounds.length ? tapscript.Tx.util.getTxid( rounds[ rounds.length - 1 ] ) : tapscript.Tx.util.getTxid( funding_tx );
                         var round = tapscript.Tx.create({
                             version: 3,
@@ -3607,6 +3626,7 @@
                         }
                         var sigs = [];
                         var tapleaf = tree[ 0 ];
+                        var sighash = tapscript.Signer.taproot.hash( round, 0, { extension: tapleaf }).hex;
                         var sig = tapscript.Signer.taproot.sign( privkey, round, 0, { extension: tapleaf }).hex;
                         sigs.push( sig );
                         rounds.push( round );
@@ -3746,7 +3766,7 @@
                         var sig_array = sorted_round_sigs[ i ];
                         var round = rounds[ i ];
                         var target = tree[ 0 ];
-                        var sighash = tapscript.Signer.taproot.hash( round, 0, { extension: target });
+                        var sighash = tapscript.Signer.taproot.hash( round, 0, { extension: target }).hex;
                         var j; for ( j=0; j<sig_array.length; j++ ) {
                             //j represents the user whose sig we are checking
                             //and we skip checking our own
@@ -3790,10 +3810,8 @@
                     }
                     sorted_user_ejection_sigs = grouped_1;
                     state.sorted_user_ejection_sigs = sorted_user_ejection_sigs;
-                    console.log( 0, grouped_1, sorted_user_ejection_sigs, state.sorted_user_ejection_sigs );
                     sorted_connector_sigs = grouped_2;
                     state.sorted_connector_sigs = sorted_connector_sigs;
-                    console.log( 1, grouped_2, sorted_connector_sigs, state.sorted_connector_sigs );
                     var i; for ( i=0; i<ejection_txs.length; i++ ) {
                         //i represents a round
                         var sig_array_1 = sorted_user_ejection_sigs[ i ];
@@ -4017,6 +4035,12 @@
                             hedgehog_factory.startSigning( msg.dat, state_id );
                             return;
                         }
+                        //if the admin sends the "invoice_paid" message, mark your invoice as paid and prepare to use the hash to create a hedgehog channel
+                        //TODO: he should also give you a blind sig here; unblind it and change your pubkey, then you can prove you were in this group using the unblinded sig instead of your pubkey -- preventing the admin from linking you to your payment
+                        if ( msg.ctx.pubkey === params.routing_node && msg.tag === "preparation_phase" && JSON.parse( msg.dat )[ "type" ] === "invoice_paid" ) {
+                            state.initial_state_hash = JSON.parse( JSON.parse( msg.dat )[ "value" ] )[ "hash_for_hedgehog_channel" ];
+                            return;
+                        }
                         //if the admin receives sigs, validate them and add them to the all_sigs_needed_by_admin object
                         if ( params.hasOwnProperty( "admin" ) && all_peers.includes( msg.ctx.pubkey ) && msg.tag === "sigs" ) {
                             var all_sigs_needed_by_admin = state.all_sigs_needed_by_admin;
@@ -4100,7 +4124,8 @@
                     if ( invoice_data.hasOwnProperty( "error" ) && invoice_data.error ) throw "your nwc string is not giving you invoices, check what's wrong";
                     console.log( invoice_data );
                     var invoice = invoice_data.result.invoice;
-                    who_should_pay[ peer ] = [ "not_paid", invoice ];
+                    var preimage_for_hedgehog_channel = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomBytes( 16 ) );
+                    who_should_pay[ peer ] = [ "not_paid", invoice, preimage_for_hedgehog_channel ];
                     console.log( `sending ${peer} their invoice` );
                     var msg = JSON.stringify({
                         type: "pay_invoice",
@@ -4117,16 +4142,28 @@
                         if ( now - start_time > 60 ) return console.log( `timing out this peer: ${peer}` );
                         console.log( `${peer}'s invoice is paid, right?`, !!status_data.result.settled_at );
                         //if settled_at is null I should loop
-                        if ( !status_data.result.settled_at ) {
-                            console.log( `in another 10 seconds we will check again if ${peer}'s invoice is paid` );
-                            return loop();
-                        }
+                        //TODO: uncomment the following four lines to stop pretending everyone paid
+                        // if ( !status_data.result.settled_at ) {
+                        //     console.log( `in another 10 seconds we will check again if ${peer}'s invoice is paid` );
+                        //     return loop();
+                        // }
                         //otherwise I should mark them as paid
                         who_should_pay[ peer ][ 0 ] = "paid";
+                        all_peers.push( peer );
                         console.log( `${peer} paid` );
+                        var hash_for_hedgehog_channel = hedgehog.rmd160( hedgehog.hexToBytes( who_should_pay[ peer ][ 2 ] ) );
                         var msg = JSON.stringify({
                             type: "invoice_paid",
-                            value: ``,
+                            value: JSON.stringify({
+                                //give each user a hash for use in
+                                //creating the initial state of the hedgehog
+                                //channel (they need to pass in your pubkey-
+                                //hash pair in order to give you a sig that
+                                //lets you withdraw everything in the initial
+                                //state)
+                                hash_for_hedgehog_channel,
+                                //TODO: also give each user a blind signature
+                            }),
                         });
                         node.send( 'preparation_phase', msg, peers[ index ], msg_id );
                     }
@@ -4134,10 +4171,7 @@
                 });
                 //abort if, after 60 seconds, not enough people paid to meet your minimum
                 //TODO: change the wait time to 60000
-                await hedgehog_factory.waitSomeTime( 12000 );
-                //TODO: delete the lines below, which pretend everyone paid
-                peers.forEach( peer => who_should_pay[ peer ][ 0 ] = "paid" );
-                peers.forEach( peer => all_peers.push( peer ) );
+                await hedgehog_factory.waitSomeTime( 30000 );
                 var peers_to_message = JSON.parse( JSON.stringify( all_peers ) );
                 var num_who_paid = Object.keys( who_should_pay ).length;
                 Object.keys( who_should_pay ).forEach( participant => {
