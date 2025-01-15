@@ -3909,8 +3909,14 @@
                             //potential channels depending on which
                             //withdrawal tx he ends up getting, and we
                             //must validate each one
-                            var txid_for_this_channel = state.withdrawal_txids[ i ][ j ];
                             var channel_info = state.opening_info_for_hedgehog_channels[ peer ][ j ];
+                            //do not let users overwrite a channel you already validated
+                            if ( hedgehog.state.hasOwnProperty( channel_info.chan_id ) ) {
+                                naughty_peers.push( peer );
+                                break;
+                            }
+                            //ensure each user signed correct info about their channel
+                            var txid_for_this_channel = state.withdrawal_txids[ i ][ j ];
                             channel_info[ "recipient_pubkey" ] = pubkey_i_am_using_in_this_channel;
                             channel_info.utxo_info[ "txid" ] = txid_for_this_channel;
                             channel_info.utxo_info[ "vout" ] = 1;
