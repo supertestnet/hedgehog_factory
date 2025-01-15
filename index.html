@@ -116,6 +116,7 @@
                     scriptPubKey: tapscript.Address.toScriptPubKey( addy ),
                 }),
                 makeAddress: ( scripts ) => {
+                    console.log( scripts );
                     var tree = scripts.map( s => tapscript.Tap.encodeScript( s ) );
                     var pubkey = "ab".repeat( 32 );
                     var [ tpubkey ] = tapscript.Tap.getPubKey( pubkey, { tree });
@@ -137,7 +138,7 @@
                     [ "OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256", hash, "OP_EQUALVERIFY", hedgehog.state[ chan_id ].alices_pubkey, "OP_CHECKSIGVERIFY", hedgehog.state[ chan_id ].bobs_pubkey, "OP_CHECKSIG" ],
                     [ hedgehog.state[ chan_id ].alices_pubkey, "OP_CHECKSIGVERIFY", hedgehog.state[ chan_id ].bobs_pubkey, "OP_CHECKSIG" ],
                 ]),
-                openChannel: async ( push_all_funds_to_counterparty, alices_pubkey_and_hash = null, papa_swap_hash = null, utxos_for_papa_swap = null, deposit_amount = null, change_address = null, data = null, bobs_privkey = null ) => {
+                openChannel: async ( push_all_funds_to_counterparty, alices_pubkey_and_hash = null, papa_swap_hash = null, utxos_for_papa_swap = null, deposit_amount = null, change_address = null, data = null, bobs_privkey = null, txinfo = null ) => {
                     //there are three ways to open a channel:
                     //the first way is as Bob, opening a channel to Alice unilaterally
                     //the code for that appears after this "if" statement (not in it) because a
@@ -167,7 +168,7 @@
                             var privkey = hedgehog.keypairs[ pubkey ][ "privkey" ];
                             var preimage = hedgehog.keypairs[ pubkey ][ "preimage" ];
                             var chan_id = data[ "chan_id" ];
-                            hedgehog.state[ chan_id ] = hedgehog.state_obj;
+                            hedgehog.state[ chan_id ] = JSON.parse( JSON.stringify( hedgehog.state_obj ) );
                             hedgehog.state[ chan_id ][ "alices_privkey" ] = privkey;
                             hedgehog.state[ chan_id ][ "alices_pubkey" ] = pubkey;
                             hedgehog.state[ chan_id ][ "bobs_pubkey" ] = data[ "sender_pubkey" ];
@@ -217,7 +218,7 @@
                     //handle the case where Bob opens a channel to Alice unilaterally
                     //start by preparing the state object
                     var chan_id = hedgehog.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() ).substring( 0, 32 );
-                    hedgehog.state[ chan_id ] = hedgehog.state_obj;
+                    hedgehog.state[ chan_id ] = JSON.parse( JSON.stringify( hedgehog.state_obj ) );
                     if ( !bobs_privkey ) hedgehog.state[ chan_id ].bobs_privkey = hedgehog.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() );
                     else hedgehog.state[ chan_id ].bobs_privkey = bobs_privkey;
                     hedgehog.state[ chan_id ].bobs_pubkey = nobleSecp256k1.getPublicKey( hedgehog.state[ chan_id ].bobs_privkey, true ).substring( 2 );
@@ -314,9 +315,15 @@
                     }
                     console.log( "address:", hedgehog.state[ chan_id ].multisig );
 
-                    var txid = prompt( `send some sats to this address and give the txid:\n\n${hedgehog.state[ chan_id ].multisig}` );
-                    var vout = Number( prompt( `and the vout` ) );
-                    var amnt = Number( prompt( `and the amount` ) );
+                    if ( !txinfo ) {
+                        var txid = prompt( `send some sats to this address and give the txid:\n\n${hedgehog.state[ chan_id ].multisig}` );
+                        var vout = Number( prompt( `and the vout` ) );
+                        var amnt = Number( prompt( `and the amount` ) );
+                    } else {
+                        var txid = txinfo[ 0 ];
+                        var vout = txinfo[ 1 ];
+                        var amnt = txinfo[ 2 ];
+                    }
                     hedgehog.state[ chan_id ].multisig_utxo_info = {
                         txid,
                         vout,
@@ -329,6 +336,7 @@
 
                     //prepare the transaction that moves all funds to Alice's side
                     var opening = true;
+                    console.log( chan_id, amnt - 500 - 500, opening );
                     var sigs_and_stuff = hedgehog.send( chan_id, amnt - 500 - 500, opening );
                     sigs_and_stuff[ "amnt" ] = amnt;
                     console.log( "send this data to your recipient:" );
@@ -339,10 +347,11 @@
                     hedgehog.state[ chan_id ].balances_before_most_recent_receive = [ amnt, 0 ];
 
                     //update the send/receive/close buttons to use this channel
-                    $( '.send_btn' ).onclick = () => {console.log( "send this data to your recipient:" );console.log( JSON.stringify( hedgehog.send( chan_id ) ) );}
-                    $( '.receive_btn' ).onclick = () => {hedgehog.receive();}
-                    $( '.close_channel' ).onclick = () => {hedgehog.closeChannel( chan_id );}
-                    alert( `yay, your channel is funded! send your counterparty the info in your console` );
+                    // $( '.send_btn' ).onclick = () => {console.log( "send this data to your recipient:" );console.log( JSON.stringify( hedgehog.send( chan_id ) ) );}
+                    // $( '.receive_btn' ).onclick = () => {hedgehog.receive();}
+                    // $( '.close_channel' ).onclick = () => {hedgehog.closeChannel( chan_id );}
+                    // alert( `yay, your channel is funded! send your counterparty the info in your console` );
+                    return sigs_and_stuff;
                 },
                 send: ( chan_id, amnt, opening, skip_pending_check ) => {
                     if ( !skip_pending_check && Object.keys( hedgehog.state[ chan_id ].pending_htlc ).length ) return alert( `you have a pending htlc, and you cannot send money while you have one...clear it before proceeding` );
@@ -401,6 +410,7 @@
                         vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chan_id ][ "multisig" ] )],
                         vout: [hedgehog.getVout( original_amnt - 500, revocable_address )],
                     });
+                    console.log( 85, JSON.stringify( tx0 ) );
                     var tx0_id = tapscript.Tx.util.getTxid( tx0 );
                     var alices_address = hedgehog.state[ chan_id ].alices_address;
                     var bobs_address = hedgehog.state[ chan_id ].bobs_address;
@@ -447,7 +457,7 @@
                         if ( amnt_for_alice ) tx1.vout.push( hedgehog.getVout( amnt_for_alice, alices_address ) );
                         if ( amnt_for_bob ) tx1.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
                     }
-                    console.log( 87, tx1.vout );
+                    // console.log( 87, JSON.stringify( tx1 ) );
                     // console.log( "tx0:", JSON.stringify( tx0 ) );
                     // console.log( "tx1:", JSON.stringify( tx1 ) );
 
@@ -609,6 +619,7 @@
                         vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chan_id ][ "multisig" ] )],
                         vout: [hedgehog.getVout( original_amnt - 500, revocable_address )],
                     });
+                    console.log( 86, JSON.stringify( tx0 ) );
                     var tx0_id = tapscript.Tx.util.getTxid( tx0 );
 
                     //create tx1 to distribute the funds however the sender wishes to do so
@@ -635,7 +646,7 @@
                         if ( amnt_for_alice ) tx1.vout.push( hedgehog.getVout( amnt_for_alice, alices_address ) );
                         if ( amnt_for_bob ) tx1.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
                     }
-                    console.log( 88, tx1.vout );
+                    // console.log( 88, JSON.stringify( tx1 ) );
                     // console.log( "tx0:", JSON.stringify( tx0 ) );
                     // console.log( "tx1:", JSON.stringify( tx1 ) );
 
@@ -3420,6 +3431,11 @@
                         msg_id: null,
                         node: null,
                         initial_state_hash: null,
+                        admin_pubkeys_for_hedgehog_channels: {},
+                        admin_privkey_for_own_hedgehog_channel: null,
+                        admin_preimage_for_own_hedgehog_channel: null,
+                        opening_info_for_hedgehog_channels: {},
+                        signing_started: false,
                     }
                     var state = hedgehog_factory.state[ state_id ];
                     if ( params[ "privkey" ] ) state.privkey = params[ "privkey" ];
@@ -3458,8 +3474,31 @@
                     var node = state.node;
                     var address_type = state.address_type;
                     var routing_node = state.routing_node;
+                    var funding_amount = state.channel_size;
+                    var channel_size = state.channel_size;
+                    var amount_per_user_to_cover_p2a_costs = state.amount_per_user_to_cover_p2a_costs;
                     var backup_pubkey = state.backup_pubkey;
                     var msg_id = state_id;
+
+                    //if you are the admin, clear your hedgehog.keypairs object and insert the keypairs
+                    //belonging to the people who paid and have not been kicked out
+                    if ( params.hasOwnProperty( "admin" ) ) {
+                        var who_should_pay = state.who_should_pay;
+                        hedgehog.keypairs = {}
+                        peers.forEach( peer => {
+                            if ( peer === pubkey ) {
+                                var preimage_for_hedgehog = state.admin_preimage_for_own_hedgehog_channel;
+                                var privkey_for_hedgehog = state.admin_privkey_for_own_hedgehog_channel;
+                            }
+                            var preimage_for_hedgehog = who_should_pay[ peer ][ 2 ];
+                            var privkey_for_hedgehog = who_should_pay[ peer ][ 3 ];
+                            var pubkey_for_hedgehog = nobleSecp256k1.getPublicKey( privkey_for_hedgehog, true ).substring( 2 );
+                            hedgehog.keypairs[ pubkey_for_hedgehog ] = {
+                                privkey: privkey_for_hedgehog,
+                                preimage: preimage_for_hedgehog,
+                            }
+                        });
+                    }
 
                     // Have every party insert the admin’s pubkey at the top of the pubkeys list
                     peers.unshift( routing_node );
@@ -3490,8 +3529,6 @@
                     if ( !all_addys_are_segwit ) return alert( `aborting because the admin scammed you by not using segwit addresses to fund the multisig, which means anyone can render all signatures invalid while the funding transaction is still in the mempool. Your money is probably gone forever.` );
 
                     // Have every party independently validate that the utxos contain enough money to fund the multisig
-                    var channel_size = state.channel_size;
-                    var amount_per_user_to_cover_p2a_costs = state.amount_per_user_to_cover_p2a_costs;
                     var required_sum = ( channel_size * peers.length ) + ( amount_per_user_to_cover_p2a_costs * peers.length ) + 830;
                     var actual_sum = 0;
                     utxos.forEach( utxo => actual_sum = actual_sum + utxo[ "amnt" ] );
@@ -3573,13 +3610,13 @@
                     // Have every party independently create a 10 step “exit ladder” using my tornado factory protocol so that the money for each participant is guaranteed to end up in a 2 of 2 multisig “owned by” that participant’s pubkey and the admin's
                     var every_partys_2_of_2 = [];
                     peers.forEach( key => {
-                        var two_of_two_script = [ key, "OP_CHECKSIGVERIFY", routing_node, "OP_CHECKSIG" ];
+                        var admins_pubkey_for_hedgehog_channel = state.admin_pubkeys_for_hedgehog_channels[ key ];
+                        var two_of_two_script = [ admins_pubkey_for_hedgehog_channel, "OP_CHECKSIGVERIFY", key, "OP_CHECKSIG" ];
                         var two_of_two_tree = [ tapscript.Tap.encodeScript( two_of_two_script ) ];
                         var two_of_two_addy = hedgehog.makeAddress( [ two_of_two_script ] );
                         every_partys_2_of_2.push( two_of_two_addy );
                     });
                     // Generate n presigned txs, to which each user gets a copy
-                    var funding_amount = channel_size;
                     var rounds = state.rounds;
                     var round_sigs = state.round_sigs;
                     var i; for ( i=0; i<num_of_users; i++ ) {
@@ -3616,6 +3653,7 @@
                         }
                         var connector_utxos = state.connector_utxos;
                         if ( !i ) {
+                            console.log( round );
                             var j; for ( j=0; j<num_of_users; j++ ) {
                                 connector_utxos.push({
                                     txid: tapscript.Tx.util.getTxid( round ),
@@ -3669,8 +3707,6 @@
                                     //note that the round made an output of funding_amount - 240
                                     //and this tx is spending that and taking out an *additional*
                                     //240 for output 0 -- so it's funding_amount - 240 - 240
-                                    //todo: change the scriptPubKey to a 2 of 2 multisig with a
-                                    //routing node
                                     value: funding_amount + amount_per_user_to_cover_p2a_costs - 240 - 240,
                                     scriptPubKey: tapscript.Address.toScriptPubKey( every_partys_2_of_2[ j ] ),
                                 }],
@@ -3722,10 +3758,26 @@
                             sigs_to_send.push( connector_sigs[ i ][ j ][ 0 ] );
                         }
                     }
-                    var all_sigs_needed_by_admin = state.all_sigs_needed_by_admin;
-                    if ( peers[ 0 ] !== pubkey ) node.send( 'sigs', JSON.stringify( sigs_to_send ), peers[ 0 ], msg_id );
-                    else all_sigs_needed_by_admin[ pubkey ] = sigs_to_send;
                     // Have every party give the admin signatures and hashes which, per my hedgehog protocol, allow the admin to create an initial state for the 2 of 2 multisig such that the admin can withdraw everything from it
+                    var my_usernum = all_peers.indexOf( pubkey );
+                    var counterpartys_pubkey = state.admin_pubkeys_for_hedgehog_channels[ all_peers[ my_usernum ] ];
+                    var initial_state_hash = state.initial_state_hash;
+                    var alices_pubkey_and_hash = [ counterpartys_pubkey, initial_state_hash ];
+                    var push_all_funds_to_counterparty = true;
+                    var opening_info_for_hedgehog_channels = state.opening_info_for_hedgehog_channels;
+                    if ( !opening_info_for_hedgehog_channels.hasOwnProperty( pubkey ) ) opening_info_for_hedgehog_channels[ pubkey ] = [];
+                    var i; for ( i=0; i<all_peers.length; i++ ) {
+                        var my_withdrawal_txids = state.withdrawal_txids[ my_usernum ];
+                        var txid = my_withdrawal_txids[ i ];
+                        var vout = 1;
+                        var amnt = funding_amount + amount_per_user_to_cover_p2a_costs - 240 - 240;
+                        var opening_info = await hedgehog.openChannel( push_all_funds_to_counterparty, alices_pubkey_and_hash, null, null, null, null, null, privkey, [txid, vout, amnt] );
+                        opening_info_for_hedgehog_channels[ pubkey ].push( opening_info );
+                    }
+                    // Send the data to the admin or, if you are the admin, save your own data
+                    var all_sigs_needed_by_admin = state.all_sigs_needed_by_admin;
+                    if ( peers[ 0 ] !== pubkey ) node.send( 'sigs', JSON.stringify({ sigs_to_send, opening_info_for_hedgehog_channels: opening_info_for_hedgehog_channels[ pubkey ] }), peers[ 0 ], msg_id );
+                    else all_sigs_needed_by_admin[ pubkey ] = sigs_to_send;
                     // Then have the admin broadcast the funding transaction and the protocol is done
                 },
                 validateAndBroadcast: async state_id => {
@@ -3742,6 +3794,7 @@
                     var rounds = state.rounds;
                     var num_of_round_sigs_in_each_set = all_peers.length;
                     var all_sigs_needed_by_admin = state.all_sigs_needed_by_admin;
+                    var who_should_pay = state.who_should_pay;
                     var unsorted_sigs = JSON.parse( JSON.stringify( all_sigs_needed_by_admin ) );
                     var round_sigs = [];
                     var user_ejection_sigs = [];
@@ -3776,7 +3829,6 @@
                             if ( !is_valid && !naughty_peers.includes( all_peers[ j ] ) ) naughty_peers.push( all_peers[ j ] );
                         }
                     }
-                    //TODO: eject any naughty peers
                     console.log( 0, `naughty_peers:`, naughty_peers.length );
                     //the following loop makes it so that the first n sig_arrays in the
                     //sorted_user_ejection_sigs array and in the sorted_connector_sigs array
@@ -3838,12 +3890,38 @@
                             }
                         }
                     }
-                    //TODO: eject any naughty peers
                     console.log( 1, `naughty_peers:`, naughty_peers.length );
                     // console.log( 1 );
                     // console.log( sorted_round_sigs );
                     // console.log( sorted_user_ejection_sigs );
                     // console.log( sorted_connector_sigs );
+                    // ensure each channel opening transaction is valid
+                    var i; for ( i=0; i<all_peers.length; i++ ) {
+                        //i represents the peer
+                        //you do not need to validate your own txs
+                        if ( !i ) continue;
+                        var peer = all_peers[ i ];
+                        var pubkey_i_am_using_in_this_channel = nobleSecp256k1.getPublicKey( who_should_pay[ peer ][ 3 ], true ).substring( 2 );
+                        console.log( `validating channels of ${peer}` )
+                        var j; for ( j=0; j<all_peers.length; j++ ) {
+                            //j represents the channel being validated,
+                            //keeping in mind that each party created n
+                            //potential channels depending on which
+                            //withdrawal tx he ends up getting, and we
+                            //must validate each one
+                            var txid_for_this_channel = state.withdrawal_txids[ i ][ j ];
+                            var channel_info = state.opening_info_for_hedgehog_channels[ peer ][ j ];
+                            channel_info[ "recipient_pubkey" ] = pubkey_i_am_using_in_this_channel;
+                            channel_info.utxo_info[ "txid" ] = txid_for_this_channel;
+                            channel_info.utxo_info[ "vout" ] = 1;
+                            channel_info.utxo_info[ "amnt" ] = state.channel_size;
+                            channel_info.sender_pubkey = peer;
+                            var channel_is_valid = await hedgehog.openChannel( null, null, null, null, null, null, channel_info );
+                            if ( !channel_is_valid && !naughty_peers.includes( peer ) ) naughty_peers.push( peer );
+                        }
+                    }
+                    //TODO: eject any naughty peers and restart from startSigning (note that it is important you restart from there because that function resets hedgehog.keypairs, ensuring no one can trick you into cosigning a channel state for a keypair that is not in the approved group, and thus stealing from you)
+                    console.log( 2, `naughty_peers:`, naughty_peers.length );
                     var i; for ( i=0; i<all_peers.length; i++ ) $( '.ejection_buttons' ).innerHTML = $( '.ejection_buttons' ).innerHTML + `<button onclick="hedgehog_factory.ejectUser( ${i}, '${state_id}' );" class="eject_user_btn">Eject user ${i + 1}</button>`;
                     showPage( 'ejection_buttons' );
                     var sig_for_funding_tx = tapscript.Signer.taproot.sign( privkey, funding_tx, 0 );
@@ -4031,23 +4109,26 @@
                         //users ignore any messages from people other than the admin
                         if ( !params.hasOwnProperty( "admin" ) && msg.ctx.pubkey !== params.routing_node ) return;
                         //if the admin sends the "signing_phase" message, pass it to the startSigning function
-                        if ( msg.ctx.pubkey === params.routing_node && msg.tag === "signing_phase" ) {
+                        if ( msg.ctx.pubkey === params.routing_node && msg.tag === "signing_phase" && !state.signing_started ) {
                             hedgehog_factory.startSigning( msg.dat, state_id );
                             return;
                         }
                         //if the admin sends the "invoice_paid" message, mark your invoice as paid and prepare to use the hash to create a hedgehog channel
                         //TODO: he should also give you a blind sig here; unblind it and change your pubkey, then you can prove you were in this group using the unblinded sig instead of your pubkey -- preventing the admin from linking you to your payment
-                        if ( msg.ctx.pubkey === params.routing_node && msg.tag === "preparation_phase" && JSON.parse( msg.dat )[ "type" ] === "invoice_paid" ) {
+                        if ( msg.ctx.pubkey === params.routing_node && msg.tag === "preparation_phase" && JSON.parse( msg.dat )[ "type" ] === "invoice_paid" && !state.initial_state_hash ) {
                             state.initial_state_hash = JSON.parse( JSON.parse( msg.dat )[ "value" ] )[ "hash_for_hedgehog_channel" ];
+                            state.admin_pubkeys_for_hedgehog_channels = JSON.parse( JSON.parse( msg.dat )[ "value" ] )[ "pubkeys_for_hedgehog_channels" ];
                             return;
                         }
                         //if the admin receives sigs, validate them and add them to the all_sigs_needed_by_admin object
                         if ( params.hasOwnProperty( "admin" ) && all_peers.includes( msg.ctx.pubkey ) && msg.tag === "sigs" ) {
                             var all_sigs_needed_by_admin = state.all_sigs_needed_by_admin;
+                            var opening_info_for_hedgehog_channels = state.opening_info_for_hedgehog_channels;
                             //if you already have all the sigs you need, ignore the message
                             if ( Object.keys( all_sigs_needed_by_admin ).length === all_peers.length ) return;
-                            all_sigs_needed_by_admin[ msg.ctx.pubkey ] = JSON.parse( msg.dat );
-                            //if you now have all the sigs you need, broadcast the funding tx
+                            all_sigs_needed_by_admin[ msg.ctx.pubkey ] = JSON.parse( msg.dat )[ "sigs_to_send" ];
+                            opening_info_for_hedgehog_channels[ msg.ctx.pubkey ] = JSON.parse( msg.dat )[ "opening_info_for_hedgehog_channels" ];
+                            //if you now have all the sigs you need, validate them and broadcast the funding tx
                             if ( Object.keys( all_sigs_needed_by_admin ).length === all_peers.length ) hedgehog_factory.validateAndBroadcast( state_id );
                             return;
                         }
@@ -4117,15 +4198,41 @@
                     return;
                 }
                 console.log( 'yay, there are enough peers!' );
-                peers.forEach( async ( peer, index ) => {
+                var pubkeys_for_hedgehog_channels = {}
+                var my_privkey_for_my_hedgehog_channel_with_myself = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() );
+                var my_pubkey_for_my_hedgehog_channel_with_myself = nobleSecp256k1.getPublicKey( my_privkey_for_my_hedgehog_channel_with_myself, true ).substring( 2 );
+                state.admins_pubkey_for_hedgehog_channel = my_pubkey_for_my_hedgehog_channel_with_myself;
+                pubkeys_for_hedgehog_channels[ pubkey ] = my_pubkey_for_my_hedgehog_channel_with_myself;
+                state.admin_preimage_for_own_hedgehog_channel = hedgehog_factory.bytesToHex( window.crypto.getRandomValues( new Uint8Array( 16 ) ) );
+                state.initial_state_hash = hedgehog.rmd160( hedgehog.hexToBytes( state.admin_preimage_for_own_hedgehog_channel ) );
+                state.admin_privkey_for_own_hedgehog_channel = my_privkey_for_my_hedgehog_channel_with_myself;
+                hedgehog.keypairs[ state.admins_pubkey_for_hedgehog_channel ] = {
+                    privkey: my_privkey_for_my_hedgehog_channel_with_myself,
+                    preimage: state.admin_preimage_for_own_hedgehog_channel,
+                }
+                var i; for ( i=0; i<peers.length; i++ ) {
+                    var peer = peers[ i ];
                     console.log( `getting an invoice for ${peer}` );
                     var delay_tolerance = 10;
                     var invoice_data = await nwcjs.makeInvoice( nwcjs.nwc_infos[ 0 ], channel_cost, "", delay_tolerance );
                     if ( invoice_data.hasOwnProperty( "error" ) && invoice_data.error ) throw "your nwc string is not giving you invoices, check what's wrong";
                     console.log( invoice_data );
                     var invoice = invoice_data.result.invoice;
-                    var preimage_for_hedgehog_channel = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomBytes( 16 ) );
-                    who_should_pay[ peer ] = [ "not_paid", invoice, preimage_for_hedgehog_channel ];
+                    var preimage_for_this_channel = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomBytes( 16 ) );
+                    var privkey_for_this_channel = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() );
+                    var pubkey_for_this_channel = nobleSecp256k1.getPublicKey( privkey_for_this_channel, true ).substring( 2 );
+                    hedgehog.keypairs[ pubkey_for_this_channel ] = {
+                        privkey: privkey_for_this_channel,
+                        preimage: preimage_for_this_channel,
+                    }
+                    pubkeys_for_hedgehog_channels[ peer ] = pubkey_for_this_channel;
+                    console.log( privkey_for_this_channel, pubkey_for_this_channel, peer, pubkeys_for_hedgehog_channels[ peer ] );
+                    who_should_pay[ peer ] = [ "not_paid", invoice, preimage_for_this_channel, privkey_for_this_channel ];
+                }
+                state.admin_pubkeys_for_hedgehog_channels = pubkeys_for_hedgehog_channels;
+                var i; for ( i=0; i<peers.length; i++ ) {
+                    var peer = peers[ i ];
+                    var index = i;
                     console.log( `sending ${peer} their invoice` );
                     var msg = JSON.stringify({
                         type: "pay_invoice",
@@ -4135,19 +4242,19 @@
                     var start_time = Math.floor( Date.now() / 1000 );
                     console.log( `in 10 seconds we will check if ${peer}'s invoice is paid` );
                     var loop = async () => {
-                        await hedgehog_factory.waitSomeTime( 10 * 1000 );
-                        console.log( `checking if ${peer}'s invoice is paid` );
-                        var now = Math.floor( Date.now() / 1000 );
-                        var status_data = await nwcjs.checkInvoice( nwcjs.nwc_infos[ 0 ], invoice, delay_tolerance );
-                        if ( now - start_time > 60 ) return console.log( `timing out this peer: ${peer}` );
-                        console.log( `${peer}'s invoice is paid, right?`, !!status_data.result.settled_at );
-                        //if settled_at is null I should loop
-                        //TODO: uncomment the following four lines to stop pretending everyone paid
-                        // if ( !status_data.result.settled_at ) {
-                        //     console.log( `in another 10 seconds we will check again if ${peer}'s invoice is paid` );
-                        //     return loop();
-                        // }
-                        //otherwise I should mark them as paid
+                        //TODO: uncomment the following 12 lines to stop pretending everyone paid
+                        // await hedgehog_factory.waitSomeTime( 10 * 1000 );
+                        // console.log( `checking if ${peer}'s invoice is paid` );
+                        // var now = Math.floor( Date.now() / 1000 );
+                        // var status_data = await nwcjs.checkInvoice( nwcjs.nwc_infos[ 0 ], invoice, delay_tolerance );
+                        // if ( now - start_time > 60 ) return console.log( `timing out this peer: ${peer}` );
+                        // console.log( `${peer}'s invoice is paid, right?`, !!status_data.result.settled_at );
+                        // //if settled_at is null I should loop
+                        // // if ( !status_data.result.settled_at ) {
+                        // //     console.log( `in another 10 seconds we will check again if ${peer}'s invoice is paid` );
+                        // //     return loop();
+                        // // }
+                        // //otherwise I should mark them as paid
                         who_should_pay[ peer ][ 0 ] = "paid";
                         all_peers.push( peer );
                         console.log( `${peer} paid` );
@@ -4162,16 +4269,17 @@
                                 //lets you withdraw everything in the initial
                                 //state)
                                 hash_for_hedgehog_channel,
+                                pubkeys_for_hedgehog_channels,
                                 //TODO: also give each user a blind signature
                             }),
                         });
                         node.send( 'preparation_phase', msg, peers[ index ], msg_id );
                     }
                     await loop();
-                });
+                }
+                //TODO: kick people out of admin_pubkeys_for_hedgehog_channels if they don't pay or don't sign right data
                 //abort if, after 60 seconds, not enough people paid to meet your minimum
-                //TODO: change the wait time to 60000
-                await hedgehog_factory.waitSomeTime( 30000 );
+                //TODO: fix the wait time -- I should wait a maximum of 60 seconds for everyone to send back their data
                 var peers_to_message = JSON.parse( JSON.stringify( all_peers ) );
                 var num_who_paid = Object.keys( who_should_pay ).length;
                 Object.keys( who_should_pay ).forEach( participant => {
