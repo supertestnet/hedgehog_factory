@@ -21,4 +21,4 @@ These improvements create three "mindblows."
 
 (3) the lightning network in its current state has a significant privacy problem: opening and closing channels involves a transaction on the base layer, and snoops can sometimes correlate that information to guess how much money, in aggregate, you spent in that channel. But in a channel factory, your channel opening and closing transactions never show up on the blockchain unless you use the "sad path" to exit. So there's less data for snoops to correlate and make inferences about what you're doing.
 
-So that's what I'm currently building in Hedgehog Factory: a tool where you can invite people to enter a pool where you perform the funding transaction and charge an "admission fee" to recoup your costs, hopefully make something extra, and provide privacy and cheap channel opens for your users.
+So that's what I'm currently building in Hedgehog Factory: a tool where you can invite people to enter a pool where you perform the funding transaction and charge an "admission fee" to recoup your costs, hopefully make something extra, all while providing additional privacy and cheaper channels for your users.
