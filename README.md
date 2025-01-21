@@ -13,6 +13,6 @@ Hedgehog factory improves on tornado factory in three ways:
 
 # Why these things matter
 
-These improvements greatly reduce the cost of channel opens *and* they give people an opportunity to make money on their bitcoin. E.g. if a btc transaction costs $10, you can make money on your bitcoin offering more than 10 people the opportunity to open a channel in a pool where you are the delegate, and then you just charge each person a $1 admission fee. Everyone wins: you make money, and they each get a channel for $1 that would have costed them $10 otherwise.
+These improvements greatly reduce the cost of channel opens *and* they give people an opportunity to make money on their bitcoin. E.g. if a btc transaction costs $10, you can make money on your bitcoin by offering more than 10 people the opportunity to open a channel in a pool where you are the delegate, and then you just charge each person a $1 admission fee. Everyone wins: you make money, and they each get a channel for $1 that would have costed them $10 otherwise.
 
 So that's what I'm currently building in Hedgehog Factory: a tool where you can invite people to enter a pool where you perform the funding transaction and charge an "admission fee" to recoup your costs and hopefully make something extra. 
