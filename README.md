@@ -1,5 +1,5 @@
 # Hedgehog factory
-It's like tornado factory but for hedgehog channels, and I added a coordinator
+It's like [tornado factory](https://github.com/supertestnet/tornado_factory) but for hedgehog channels, and I added a coordinator
 
 # How hedgehog factory improves on tornado factory
 
