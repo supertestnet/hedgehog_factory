@@ -13,7 +13,7 @@ Hedgehog factory improves on tornado factory in three ways:
 
 # Why these things matter
 
-These improvements create three "mindblows."
+The improvements listed above create three "mindblows."
 
 (1) the cost of opening a channel is greatly reduced. Suppose a bitcoin transaction costs $10; if you have 10 people do a channel open with you, each person only needs to pay $1. So they saved 90% on fees. And there's no need to limit it to 10 people; I think it's perfectly feasible to make a channel factory with more than 50 people, offering fee savings of over 98%.
 
