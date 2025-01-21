@@ -2488,6 +2488,7 @@
                         var alices_restoration_sig = alices_restoration_sigs[ k ];
                         restore_from_revo_tx.vin[ 0 ].witness = [ bobs_restoration_sig, alices_restoration_sig, second_revo_script, cblock ];
 
+                        console.log( 88, chid );
                         hedgehog.state[ chid ].pending_htlc = {
                             from: "bob",
                             now: Math.floor( Date.now() / 1000 ),
@@ -2546,19 +2547,22 @@
                             if ( "error" in invoice_status_info && invoice_status_info[ "error" ] ) return alert( `error processing your deposit request: ${JSON.stringify( invoice_status_info[ "error" ] )} -- please try again` );
                             if ( invoice_status_info.result.settled_at ) {
                                 //resolve the htlc
-                                var chan_id = chan_ids[ 0 ];
-                                var sigs_and_stuff = await hedgehog.checkIfOutgoingHTLCIsSettled( chan_id, invoice_status_info.result.preimage );
+                                var all_sigs_and_stuff = [];
+                                var i; for ( i=0; i<chan_ids.length; i++ ) {
+                                    var chan_id = chan_ids[ i ];
+                                    var sigs_and_stuff = await hedgehog.checkIfOutgoingHTLCIsSettled( chan_id, invoice_status_info.result.preimage );
+                                    all_sigs_and_stuff.push( sigs_and_stuff );
+                                }
                                 var msg = JSON.stringify({
                                     type: "payment_complete",
                                     msg: {
-                                        chan_id,
+                                        state_id,
                                         preimage: invoice_status_info.result.preimage,
-                                        sigs_and_stuff,
+                                        sigs_and_stuff: all_sigs_and_stuff,
                                     }
                                 });
                                 var node = state.node;
                                 node.send( 'payment_complete', msg, recipient, msg_id );
-                                super_nostr.sendEvent( event, socket );
                                 return;
                             }
                             var loop_delay = state.loop_delay;
@@ -3459,7 +3463,7 @@
                     console.log( 75.5, hedgehog.state[ chan_id ].balances_before_most_recent_send );
                     console.log( 75.6, pending_htlc[ "amnt" ] );
                     console.log( 76, hedgehog.state[ chan_id ].balances );
-                    console.log( amnt_to_send );
+                    console.log( chan_id, amnt_to_send );
                     var sigs_and_stuff = hedgehog.send( chan_id, amnt_to_send, null, skip_pending_check );
                     console.log( 77, hedgehog.state[ chan_id ].balances );
                     // console.log( "send this data to your counterparty:" );
@@ -4488,6 +4492,7 @@
                         if ( msg.tag === "preparation_phase" && params.hasOwnProperty( "admin" ) ) return;
                         //users ignore messages from people other than the admin
                         if ( !params.hasOwnProperty( "admin" ) && msg.ctx.pubkey !== params.routing_node ) return;
+                        var state_id = msg_id;
                         //if anyone receives the secret_you_need message, add it to retrievables
                         //but only if you are *are* the admin or you are *talking to* the admin
                         if ( msg.tag === "secret_you_need" && ( params.hasOwnProperty( "admin" ) || msg.ctx.pubkey === params.routing_node ) ) {
@@ -4548,24 +4553,32 @@
                         //if the admin sends the "payment_complete" message, settle the htlc
                         if ( msg.ctx.pubkey === params.routing_node && msg.tag === "payment_complete" ) {
                             var json = JSON.parse( msg.dat );
-                            var chan_id = json.msg.chan_id;
+                            //TODO: ensure the state exists
+                            var state_id = json.msg.state_id;
+                            var chan_ids = [];
+                            var opening_info = state.opening_info_for_hedgehog_channels[ state.pubkey ];
+                            opening_info.forEach( opener => chan_ids.push( opener.chan_id ) );
                             var preimage = json.msg.preimage;
-                            var sigs_and_stuff = json.msg.sigs_and_stuff;
-                            // TODO: uncomment the two lines below
-                            // var pmt_status = await hedgehog.settleIncomingHTLC({ chan_id, preimage });
-                            // if ( !pmt_status.startsWith( "that went well" ) ) return alert( `something went wrong: ${pmt_status}` );
-                            //TODO: consider more deeply whether I am right to assume it is safe to resolve an htlc
-                            //that is from Bob; my reasoning is that his htlcs always pay me more money, so resolving
-                            //them is fine; I don't even need to check that he has the right preimage or anything;
-                            //because resolving the htlc always results in me receiving more money
-                            //After considering it, I think I should abort if sigs_and_stuff contains an amount that differs from the amount in pending_htlc
-                            console.log( 185, sigs_and_stuff.amnt )
-                            sigs_and_stuff.amnt = hedgehog.state[ chan_id ].balances[ 0 ] + hedgehog.state[ chan_id ].pending_htlc.amnt;
-                            console.log( 186, hedgehog.state[ chan_id ].balances[ 0 ], hedgehog.state[ chan_id ].pending_htlc.amnt, sigs_and_stuff.amnt )
-                            var skip_pending_check = true;
-                            hedgehog.receive( sigs_and_stuff, skip_pending_check );
-                            hedgehog.state[ chan_id ].pending_htlc = {}
-                            //TODO: as soon as you resolve the htlc get Alice and Bob to both revoke their prior states
+                            var i; for ( i=0; i<chan_ids.length; i++ ) {
+                                var chan_id = chan_ids[ i ];
+                                var sigs_and_stuff = json.msg.sigs_and_stuff[ i ];
+                                // TODO: uncomment the two lines below
+                                // var pmt_status = await hedgehog.settleIncomingHTLC({ chan_id, preimage });
+                                // if ( !pmt_status.startsWith( "that went well" ) ) return alert( `something went wrong: ${pmt_status}` );
+                                //TODO: consider more deeply whether I am right to assume it is safe to resolve an htlc
+                                //that is from Bob; my reasoning is that his htlcs always pay me more money, so resolving
+                                //them is fine; I don't even need to check that he has the right preimage or anything;
+                                //because resolving the htlc always results in me receiving more money
+                                //After considering it, I think I should abort if sigs_and_stuff contains an amount that differs from the amount in pending_htlc
+                                console.log( 185, sigs_and_stuff.amnt );
+                                sigs_and_stuff.amnt = hedgehog.state[ chan_id ].balances[ 0 ] + hedgehog.state[ chan_id ].pending_htlc.amnt;
+                                sigs_and_stuff.chan_id = chan_id;
+                                console.log( 186, hedgehog.state[ chan_id ].balances[ 0 ], hedgehog.state[ chan_id ].pending_htlc.amnt, sigs_and_stuff.amnt );
+                                var skip_pending_check = true;
+                                hedgehog.receive( sigs_and_stuff, skip_pending_check );
+                                hedgehog.state[ chan_id ].pending_htlc = {}
+                                //TODO: as soon as you resolve the htlc get Alice and Bob to both revoke their prior states
+                            }
                             return;
                         }
                         //if the admin receives sigs, validate them and add them to the all_sigs_needed_by_admin object
@@ -4613,6 +4626,8 @@
                 }
             }
             $( '.start_signing_ceremony' ).onclick = async () => {
+                var conf = confirm( `Are you sure you want to start?` );
+                if ( !conf ) return;
                 console.log( 'starting ceremony...' );
                 var state_id = params[ "ceremony" ];
                 var msg_id = state_id;
