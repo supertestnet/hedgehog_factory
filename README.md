@@ -15,7 +15,7 @@ Hedgehog factory improves on tornado factory in three ways:
 
 These improvements create three "mindblows."
 
-(1) the cost of opening a channel is greatly reduced. Suppose a bitcoin transaction costs $10; if you have 10 people do a channel open with you, each person only needs to pay $1. So they saved 90% on fees. And there's no need to limit it to 10 people; I think it's perfectly feasible to make a channel factory with as many as 70 people, offering fee savings of over 98%.
+(1) the cost of opening a channel is greatly reduced. Suppose a bitcoin transaction costs $10; if you have 10 people do a channel open with you, each person only needs to pay $1. So they saved 90% on fees. And there's no need to limit it to 10 people; I think it's perfectly feasible to make a channel factory with more than 50 people, offering fee savings of over 98%.
 
 (2) anyone can now make money on their bitcoin. For example, if a btc transaction costs $10, simply offer more than 10 people the opportunity to open a channel in a pool where you are the delegate, and then charge each person a $1 admission fee. Everyone wins: you make money, and they each get a channel for $1 that would have costed them $10 otherwise.
 
