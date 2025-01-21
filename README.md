@@ -13,6 +13,12 @@ Hedgehog factory improves on tornado factory in three ways:
 
 # Why these things matter
 
-These improvements greatly reduce the cost of channel opens *and* they give people an opportunity to make money on their bitcoin. E.g. if a btc transaction costs $10, you can make money on your bitcoin by offering more than 10 people the opportunity to open a channel in a pool where you are the delegate, and then you just charge each person a $1 admission fee. Everyone wins: you make money, and they each get a channel for $1 that would have costed them $10 otherwise.
+These improvements create three "mindblows."
 
-So that's what I'm currently building in Hedgehog Factory: a tool where you can invite people to enter a pool where you perform the funding transaction and charge an "admission fee" to recoup your costs and hopefully make something extra. 
+(1) the cost of opening a channel is greatly reduced. Suppose a bitcoin transaction costs $10; if you have 10 people do a channel open with you, each person only needs to pay $1. So they saved 90% on fees. And there's no need to limit it to 10 people; I think it's perfectly feasible to make a channel factory with as many as 70 people, offering fee savings of 98%.
+
+(2) anyone can now make money on their bitcoin. For example, if a btc transaction costs $10, simply offer more than 10 people the opportunity to open a channel in a pool where you are the delegate, and then charge each person a $1 admission fee. Everyone wins: you make money, and they each get a channel for $1 that would have costed them $10 otherwise.
+
+(3) the lightning network in its current state has a significant privacy problem: opening and closing channels involves a transaction on the base layer, and snoops can sometimes correlate that information to guess how much money, in aggregate, you spent in that channel. But in a channel factory, your channel opening and closing transactions never show up on the blockchain unless you use the "sad path" to exit. So there's less data for snoops to correlate and make inferences about what you're doing.
+
+So that's what I'm currently building in Hedgehog Factory: a tool where you can invite people to enter a pool where you perform the funding transaction and charge an "admission fee" to recoup your costs, hopefully make something extra, and provide privacy and cheap channel opens for your users.
