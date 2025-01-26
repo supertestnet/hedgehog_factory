@@ -3750,7 +3750,7 @@
         <div class="wallet_page hidden">
             <div>Balance</div>
             <div><span class="balance">loading...</span></div>
-            <div class="wallet_btns"><button class="send_btn">Send</button><button class="receive_btn">Receive</button></div>
+            <div class="wallet_btns"><button class="send_btn">Send</button><button class="receive_btn">Receive</button><button class="eject_btn">Eject</button></div>
         </div>
         <div class="ejection_buttons admin_only hidden"></div>
         <script>
@@ -4810,6 +4810,13 @@
                                 });
                                 state.amount_alice_expects_in_next_htlc = amnt;
                                 node.send( 'initiate_ln_receive', msg, recipient, msg_id );
+                            }
+                            $( '.eject_btn' ).setAttribute( "data-state_id", state_id );
+                            $( '.eject_btn' ).onclick = e => {
+                                var state_id = e.target.getAttribute( "data-state_id" );
+                                var round = Number( prompt( `enter what round we are in` ) );
+                                hedgehog_factory.state[ state_id ].current_round = round;
+                                hedgehog_factory.ejectUser( hedgehog_factory.state[ state_id ].all_peers.indexOf( hedgehog_factory.state[ state_id ].pubkey ), state_id, false );
                             }
                             return;
                         }
