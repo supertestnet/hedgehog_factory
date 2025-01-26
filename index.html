@@ -1213,7 +1213,7 @@
                             secret: secret_for_responding_to_bob,
                         }
                     });
-                    var recipient = alices_nostr_pubkey;
+                    var recipient = state.all_peers[ 0 ];
                     node.send( 'secret_you_need', msg, recipient, msg_id );
 
                     // console.log( `send this info to bob:` );
@@ -1278,6 +1278,7 @@
                     if ( !data ) data = JSON.parse( prompt( `Enter the data from your counterparty` ) );
                     var state_id = data[ "state_id" ];
                     var state = hedgehog_factory.state[ state_id ];
+                    var node = state.node;
                     var chan_ids = [];
                     var opening_info = state.opening_info_for_hedgehog_channels[ alices_nostr_pubkey ];
                     opening_info.forEach( opener => chan_ids.push( opener.chan_id ) );
@@ -1311,6 +1312,10 @@
                     var new_first_from_htlc_txs = [];
                     var new_second_from_htlc_txs = [];
                     var msg_id = state_id;
+                    var alices_first_htlc_sigs = data[ "alices_first_htlc_sigs" ];
+                    var alices_second_htlc_sigs = data[ "alices_second_htlc_sigs" ];
+                    var alices_conditional_first_htlc_sigs = data[ "alices_conditional_first_htlc_sigs" ];
+                    var alices_conditional_second_htlc_sigs = data[ "alices_conditional_second_htlc_sigs" ];
 
                     var k; for ( k=0; k<chan_ids.length; k++ ) {
                         var chid = chan_ids[ k ];
@@ -1428,10 +1433,10 @@
                         var htlc_tree = htlc_scripts.map( s => tapscript.Tap.encodeScript( s ) );
                         var second_htlc_script = htlc_scripts[ 1 ];
                         var second_htlc_target = tapscript.Tap.encodeScript( second_htlc_script );
-                        var alices_first_htlc_sig = data[ "alices_first_htlc_sigs" ][ k ];
+                        var alices_first_htlc_sig = alices_first_htlc_sigs[ k ];
                         var sighash_first_htlc = tapscript.Signer.taproot.hash( first_from_htlc_tx, 0, { extension: first_htlc_target }).hex;
                         var is_valid_first_htlc = await nobleSecp256k1.schnorr.verify( alices_first_htlc_sig, sighash_first_htlc, pubkey_to_validate_against );
-                        var alices_second_htlc_sig = data[ "alices_second_htlc_sigs" ][ k ];
+                        var alices_second_htlc_sig = alices_second_htlc_sigs[ k ];
                         var sighash_second_htlc = tapscript.Signer.taproot.hash( second_from_htlc_tx, 0, { extension: second_htlc_target }).hex;
                         var is_valid_second_htlc = await nobleSecp256k1.schnorr.verify( alices_second_htlc_sig, sighash_second_htlc, pubkey_to_validate_against );
 
@@ -1504,12 +1509,12 @@
                                 if ( amnt_for_bob ) new_second_from_htlc_tx.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
                             }
                             new_second_from_htlc_txs.push( new_second_from_htlc_tx );
-                            var alices_conditional_first_htlc_sig = data[ "alices_conditional_first_htlc_sigs" ][ k ];
+                            var alices_conditional_first_htlc_sig = alices_conditional_first_htlc_sigs[ k ];
                             var conditional_htlc_1_sighash = tapscript.Signer.taproot.hash( new_first_from_htlc_tx, 0, { extension: first_htlc_target }).hex;
                             var conditional_htlc_1_is_valid = await nobleSecp256k1.schnorr.verify( alices_conditional_first_htlc_sig, conditional_htlc_1_sighash, pubkey_to_validate_against );
                             var bobs_conditional_first_htlc_sig = tapscript.Signer.taproot.sign( privkey, new_first_from_htlc_tx, 0, { extension: first_htlc_target }).hex;
                             bobs_conditional_first_htlc_sigs.push( bobs_conditional_first_htlc_sig );
-                            var alices_conditional_second_htlc_sig = data[ "alices_conditional_second_htlc_sigs" ][ k ];
+                            var alices_conditional_second_htlc_sig = alices_conditional_second_htlc_sigs[ k ];
                             var conditional_htlc_2_sighash = tapscript.Signer.taproot.hash( new_second_from_htlc_tx, 0, { extension: second_htlc_target }).hex;
                             var conditional_htlc_2_is_valid = await nobleSecp256k1.schnorr.verify( alices_conditional_second_htlc_sig, conditional_htlc_2_sighash, pubkey_to_validate_against );
                             var bobs_conditional_second_htlc_sig = tapscript.Signer.taproot.sign( privkey, new_second_from_htlc_tx, 0, { extension: second_htlc_target }).hex;
@@ -1549,7 +1554,7 @@
                             secret: secret_for_responding_to_alice,
                         }
                     });
-                    node.send( 'initiate_ln_payment', msg, recipient, msg_id );
+                    node.send( 'secret_you_need', msg, recipient, msg_id );
                     var preparsed_info_from_alice = await hedgehog_factory.getNote( secret_for_responding_to_bob );
                     delete hedgehog_factory.retrievables[ secret_for_responding_to_bob ];
                     var data = JSON.parse( preparsed_info_from_alice );
@@ -1558,17 +1563,22 @@
                     // await hedgehog.waitSomeSeconds( 1 );
                     // var data = JSON.parse( prompt( `enter alice's reply here` ) );
 
+                    var sig_1s = data[ "sig_1s" ];
+                    var sig_3s = data[ "sig_3s" ];
+                    var alices_conditional_revocation_sigs = data[ "conditional_revocation_sigs" ];
+
                     //validate the rest of the data sent by your counterparty
                     var k; for ( k=0; k<chan_ids.length; k++ ) {
                         var chid = chan_ids[ k ];
-                        var sig_1 = data[ "sig_1s" ][ k ];
+                        var sig_1 = sig_1s[ k ];
                         var tx0 = tx0s[ k ];
                         var sighash_1 = tapscript.Signer.taproot.hash( tx0, 0, { extension: tx0_target }).hex;
                         var is_valid_1 = await nobleSecp256k1.schnorr.verify( sig_1, sighash_1, pubkey_to_validate_against );
-                        var sig_3 = data[ "sig_3s" ][ k ];
+                        var sig_3 = sig_3s[ k ];
                         var tx1 = tx1s[ k ];
                         var sighash_3 = tapscript.Signer.taproot.hash( tx1, 0, { extension: tx1_target }).hex;
                         var is_valid_3 = await nobleSecp256k1.schnorr.verify( sig_3, sighash_3, pubkey_to_validate_against );
+                        var utxo_info = hedgehog.state[ chid ].multisig_utxo_info;
 
                         if ( !is_valid_1 || !is_valid_3 ) {
                             //restore old state and inform user this state update was invalid
@@ -1611,7 +1621,7 @@
                             var new_tx1_script = prev_scripts[ 0 ];
                             var new_tx1_target = tapscript.Tap.encodeScript( new_tx1_script );
                             var new_tx1_tree = prev_scripts.map( s => tapscript.Tap.encodeScript( s ) );
-                            var conditional_revocation_sig = data[ "conditional_revocation_sigs" ][ k ];
+                            var conditional_revocation_sig = alices_conditional_revocation_sigs[ k ];
                             var conditional_sighash = tapscript.Signer.taproot.hash( new_tx1, 0, { extension: new_tx1_target }).hex;
                             var conditional_is_valid = await nobleSecp256k1.schnorr.verify( conditional_revocation_sig, conditional_sighash, pubkey_to_validate_against );
                             if ( !conditional_is_valid ) {
@@ -1704,7 +1714,7 @@
                         if ( conditional_revocation_is_necessary ) {
                             var [ _, cblock ] = tapscript.Tap.getPubKey( "ab".repeat( 32 ), { tree: new_tx1_tree, target: new_tx1_target });
                             var new_tx1 = new_tx1s[ k ];
-                            var conditional_revocation_sig = conditional_revocation_sigs[ k ];
+                            var conditional_revocation_sig = alices_conditional_revocation_sigs[ k ];
                             if ( am_alice ) new_tx1.vin[ 0 ].witness = [ conditional_revocation_sig, conditional_cosignature, new_tx1_script, cblock ];
                             else new_tx1.vin[ 0 ].witness = [ conditional_cosignature, conditional_revocation_sig, tx1_script, cblock ];
                         }
@@ -1804,6 +1814,7 @@
                             time_to_wait_after_preimage_is_received: 2016,
                         }
                     }
+                    console.log( 3, invoice_to_pay );
 
                     //test the following scenarios:
 
@@ -3552,7 +3563,7 @@
                     hedgehog.receive( data, skip_pending_check );
                     hedgehog.state[ chan_id ].pending_htlc = {}
                 },
-                checkIfOutgoingHTLCIsSettled: async ( chan_id, preimage ) => {
+                checkIfOutgoingHTLCIsSettled: async ( chan_id, preimage, only_send_htlc_amount ) => {
                     if ( !chan_id ) chan_id = prompt( `enter chan_id` );
 
                     //automatically find out if I am Alice or Bob using the chan_id
@@ -3580,6 +3591,7 @@
                     }
                     if ( am_alice ) var amnt_to_send = hedgehog.state[ chan_id ].balances_before_most_recent_send[ 1 ] + pending_htlc[ "amnt" ];
                     else var amnt_to_send = pending_htlc[ "amnt" ];
+                    if ( only_send_htlc_amount ) amnt_to_send = pending_htlc[ "amnt" ];
                     var skip_pending_check = true;
                     // console.log( 75.5, hedgehog.state[ chan_id ].balances_before_most_recent_send );
                     // console.log( 75.6, pending_htlc[ "amnt" ] );
@@ -4555,11 +4567,10 @@
                     var chan_ids = [];
                     state.opening_info_for_hedgehog_channels[ alices_pubkey ].forEach( opener => chan_ids.push( opener.chan_id ) );
                     var all_is_well = true;
-                    var k; for ( k=0; k<chan_ids.length; k++ ) {
-                        console.log( 1 );
-                        var invoice_to_pay = await hedgehog.bobReceivesHTLC( info_from_alice, secret_for_responding_to_alice, alices_pubkey, invoice_to_pay );
-                        if ( !invoice_to_pay.startsWith( "lnbc1" ) ) all_is_well = false;
-                    }
+                    console.log( 1, invoice_to_pay, json.msg );
+                    var invoice_to_pay = await hedgehog.bobReceivesHTLC( info_from_alice, secret_for_responding_to_alice, alices_pubkey, invoice_to_pay );
+                    console.log( 3.5, invoice_to_pay );
+                    if ( !invoice_to_pay.startsWith( "lnbc" ) ) all_is_well = false;
                     if ( !all_is_well ) return alert( `abort, Alice sent you invalid invoice data` );
                     if ( hedgehog.getInvoiceAmount( invoice_to_pay ) ) {
                         var amnt = null;
@@ -4573,7 +4584,7 @@
                             if ( "result_type" in invoice_status_info && invoice_status_info[ "result_type" ] !== "lookup_invoice" ) return alert( `your wallet encountered an undefined error while processing this deposit request, try again:\n\n${JSON.stringify( invoice_status_info )}` );
                             if ( "error" in invoice_status_info && invoice_status_info[ "error" ] ) return alert( `error processing your deposit request: ${JSON.stringify( invoice_status_info[ "error" ] )} -- please try again` );
                             if ( invoice_status_info.result.settled_at ) {
-                                $( '.expenses' ).innerText = Number( $( '.expenses' ).innerText ) + Math.floor( invoice_status_info.result.fees_paid / 1000 );
+                                // $( '.expenses' ).innerText = Number( $( '.expenses' ).innerText ) + Math.floor( invoice_status_info.result.fees_paid / 1000 );
                                 var k; for ( k=0; k<chan_ids.length; k++ ) {
                                     var chan_id = chan_ids[ k ];
                                     var pmt_status = await hedgehog.settleIncomingHTLC({ chan_id, preimage: invoice_status_info.result.preimage });
@@ -4591,6 +4602,7 @@
                                 node.send( 'payment_succeeded', msg, recipient, msg_id );
                                 return;
                             }
+                            var loop_delay = state.loop_delay;
                             await super_nostr.waitSomeSeconds( loop_delay );
                             return loop();
                         }
@@ -4598,6 +4610,7 @@
                     }
                 },
                 runPaymentSucceeded: async ( msg, state_id ) => {
+                    var json = JSON.parse( msg.dat );
                     //TODO: validate the state id and the preimage
                     var provided_state_id = json.msg.state_id;
                     if ( provided_state_id !== state_id ) return alert( `aborting because the admin sent you an invalid state id` );
@@ -4605,40 +4618,42 @@
                     var state = hedgehog_factory.state[ state_id ];
                     var preimage = json.msg.preimage;
                     var chan_ids = [];
-                    state.opening_info_for_hedgehog_channels[ alices_pubkey ].forEach( opener => chan_ids.push( opener.chan_id ) );
+                    state.opening_info_for_hedgehog_channels[ state.pubkey ].forEach( opener => chan_ids.push( opener.chan_id ) );
                     var all_sigs_and_stuff = [];
-                    var k; for ( k=0; i<chan_ids.length; k++ ) {
+                    var k; for ( k=0; k<chan_ids.length; k++ ) {
                         var chan_id = chan_ids[ k ];
                         //TODO: abort if the data is invalid
-                        var sigs_and_stuff = await hedgehog.checkIfOutgoingHTLCIsSettled( chan_id, preimage );
+                        var only_send_htlc_amount = true;
+                        var sigs_and_stuff = await hedgehog.checkIfOutgoingHTLCIsSettled( chan_id, preimage, only_send_htlc_amount );
                         all_sigs_and_stuff.push( sigs_and_stuff );
                     }
                     // console.log( "send this data to your counterparty:" );
                     // console.log( JSON.stringify( sigs_and_stuff ) );
+                    var recipient = msg.ctx.pubkey;
                     var msg = JSON.stringify({
                         type: "resolve_htlc",
                         msg: {
                             sigs_and_stuff: all_sigs_and_stuff,
                         }
                     });
-                    var recipient = msg.ctx.pubkey;
                     var node = state.node;
                     node.send( 'resolve_htlc', msg, recipient, msg_id );
                 },
                 runResolveHTLC: async ( msg, state_id ) => {
+                    var json = JSON.parse( msg.dat );
                     var all_sigs_and_stuff = json.msg.sigs_and_stuff;
                     //TODO: ensure the chan_ids being resolved belong to the user
                     //and have pending htlcs
                     var msg_id = state_id;
                     var i; for ( i=0; i<all_sigs_and_stuff.length; i++ ) {
                         var sigs_and_stuff = all_sigs_and_stuff[ i ];
-                        var skip_pending_check = true;
-                        var chan_id = sigs_and_stuff[ "chan_id" ];
-                        if ( hedgehog.state[ chan_id ].pending_htlc && hedgehog.state[ chan_id ].pending_htlc.from !== "alice" ) return alert( 'it is unsafe to resolve this htlc' );
                         //TODO: consider more deeply whether I am right to assume it is safe to resolve an htlc
                         //that is from Alice; my reasoning is that her htlcs always pay me more money, so resolving
                         //them is fine; I don't even need to check that she has the right preimage or anything;
                         //because resolving the htlc always results in me receiving more money
+                        var skip_pending_check = true;
+                        var chan_id = sigs_and_stuff[ "chan_id" ];
+                        if ( hedgehog.state[ chan_id ].pending_htlc && hedgehog.state[ chan_id ].pending_htlc.from !== "alice" ) return alert( 'it is unsafe to resolve this htlc' );
                         hedgehog.receive( sigs_and_stuff, skip_pending_check );
                         hedgehog.state[ chan_id ].pending_htlc = {}
                     }
@@ -4817,7 +4832,7 @@
                             return;
                         }
                         //if the admin sends the "payment_succeeded" signal, settle the htlc
-                        if ( params.hasOwnProperty( "admin" ) && all_peers.includes( msg.ctx.pubkey ) && msg.tag === "payment_succeeded" ) {
+                        if ( msg.ctx.pubkey === params.routing_node && msg.tag === "payment_succeeded" ) {
                             var state_id = msg_id;
                             hedgehog_factory.runPaymentSucceeded( msg, state_id );
                             return;
