@@ -4253,6 +4253,8 @@
                     var user_ejection_sigs = [];
                     var connector_sigs = [];
                     all_peers.forEach( peer => {
+                        //the first array in round_sigs will contain n sigs by the first user,
+                        //each of which creates one of the n midstates
                         round_sigs.push( [ ...unsorted_sigs[ peer ].splice( 0, all_peers.length ) ] );
                         user_ejection_sigs.push( [ ...unsorted_sigs[ peer ].splice( 0, all_peers.length ** 2 ) ] );
                         connector_sigs.push( [ ...unsorted_sigs[ peer ].splice( 0, all_peers.length ** 2 ) ] );
@@ -4391,14 +4393,26 @@
                     // Tell everyone their channels are active
                     var msg_id = state.msg_id;
                     var node = state.node;
-                    var peers_to_send_message_to = JSON.parse( JSON.stringify( all_peers ) );
-                    peers_to_send_message_to.splice( 0, 1 );
-                    //TODO: instead of relaying the same message to every peer, send a message
-                    //to each one individually and include the signatures they need to unilaterally
-                    //withdraw
-                    node.relay( 'channels_active', "channels_active", peers_to_send_message_to, msg_id );
+                    //send a message to each user and include the
+                    //signatures they need to unilaterally withdraw
+                    var i; for ( i=0; i<all_peers.length; i++ ) {
+                        if ( !i ) continue;
+                        var recipient = all_peers[ i ];
+                        var ejection_sigs_for_this_user = [];
+                        var connector_sigs_for_this_user = [];
+                        var j; for ( j=0; j<all_peers.length; j++ ) {
+                            ejection_sigs_for_this_user.push( sorted_user_ejection_sigs[ j ][ i ] );
+                            connector_sigs_for_this_user.push( sorted_connector_sigs[ j ][ i ] );
+                        }
+                        var msg = JSON.stringify({
+                            sorted_round_sigs,
+                            ejection_sigs_for_this_user,
+                            connector_sigs_for_this_user,
+                        });
+                        node.send( 'channels_active', msg, recipient, msg_id );
+                    }
                 },
-                ejectUser: ( user, state_id ) => {
+                ejectUser: ( user, state_id, i_am_admin = true ) => {
                     var state = hedgehog_factory.state[ state_id ];
                     var round = state.current_round;
                     var tree = state.tree;
@@ -4421,10 +4435,10 @@
                     var [ _, cblock ] = tapscript.Tap.getPubKey( backup_pubkey, { target: tapleaf, tree });
                     rounds[ round ].vin[ 0 ].witness = [ ...sorted_round_sigs[ round ].reverse(), scripts[ 0 ], cblock ];
                     //to spend from the user's branch, get a utxo that you can pay the mining fee with
-                    var admin_addy = tapscript.Address.fromScriptPubKey( [ 1, pubkey ], address_type );
+                    var my_addy = tapscript.Address.fromScriptPubKey( [ 1, pubkey ], address_type );
                     var fee_for_round = 2 * all_peers.length * average_bytesize_of_each_users_input;
                     console.log( `please send ${fee_for_round} sats to this address:` );
-                    console.log( admin_addy );
+                    console.log( my_addy );
                     var txid2 = prompt( `You are about to eject the user you selected. Please send ${fee_for_round} sats to the address in your console so that your user can pay the mining fee for their exit transaction, then enter the txid of your deposit` );
                     var vout2 = Number( prompt( `and the vout` ) );
                     var amnt2 = Number( prompt( `and the amount` ) );
@@ -4454,8 +4468,10 @@
                     round_fee_tx.vin[ 1 ].witness = [ sig ];
 
                     var eject_user_tx = ejection_txs[ round ][ user ];
-                    var eject_user_sigs = sorted_user_ejection_sigs[ round ][ user ].reverse();
-                    var my_connector_sigs = sorted_connector_sigs[ round ][ user ].reverse();
+                    if ( i_am_admin ) var eject_user_sigs = sorted_user_ejection_sigs[ round ][ 0 ].reverse();
+                    else var eject_user_sigs = sorted_user_ejection_sigs[ round ].reverse();
+                    if ( i_am_admin ) var my_connector_sigs = sorted_connector_sigs[ round ][ 0 ].reverse();
+                    else my_connector_sigs = sorted_connector_sigs[ round ].reverse();
                     var tapleaf = midstate_trees[ round ][ user ];
                     var [ _, cblock ] = tapscript.Tap.getPubKey( backup_pubkey, { target: tapleaf, tree: midstate_trees[ round ] });
                     eject_user_tx.vin[ 0 ].witness = [ ...eject_user_sigs, midstate_scripts[ round ][ user ], cblock ];
@@ -4504,7 +4520,7 @@
                     console.log( `broadcast this exit_fee_tx tx that pays the fee for the eject_user_tx:` );
                     console.log( txhex );
                     state.current_round = round + 1;
-                    $$( '.eject_user_btn' )[ user ].disabled = true;
+                    if ( i_am_admin ) $$( '.eject_user_btn' )[ user ].disabled = true;
                 },
                 runGetRevData: async ( msg, state_id ) => {
                     var json = JSON.parse( msg.dat );
@@ -4758,7 +4774,10 @@
                         }
                         //if the admin sends the "channels_active" message, show the user their wallet
                         if ( msg.ctx.pubkey === params.routing_node && msg.tag === "channels_active" ) {
-                            //TODO: have the admin send you the sigs you need to unilaterally withdraw and validate them
+                            //TODO: have each user validate the sigs for their unilateral withdrawal
+                            state.sorted_round_sigs = JSON.parse( msg.dat )[ "sorted_round_sigs" ];
+                            state.sorted_user_ejection_sigs = JSON.parse( msg.dat )[ "ejection_sigs_for_this_user" ];
+                            state.sorted_connector_sigs = JSON.parse( msg.dat )[ "connector_sigs_for_this_user" ];
                             showPage( 'wallet_page' );
                             var hedgehog_chan_ids = [];
                             var state_id = msg_id;
