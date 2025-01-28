@@ -4,8 +4,10 @@
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, user-scalable=no">
         <script>var nostr_p2p = null;</script>
+        <script src="https://cdn.jsdelivr.net/gh/mebjas/html5-qrcode@master/minified/html5-qrcode.min.js"></script>
         <script src="https://supertestnet.github.io/hedgehog-advanced/tapscript.js"></script>
         <script src="https://supertestnet.github.io/hedgehog-advanced/rmd160.js"></script>
+        <script src="https://supertestnet.github.io/bitcoin-chess/js/qrcode.js"></script>
         <script src="https://supertestnet.github.io/blind-sig-js/blindSigJS.js"></script>
         <script src="https://supertestnet.github.io/bitcoin-chess/js/bolt11.js"></script>
         <script src="https://supertestnet.github.io/nostr_p2p/nostr_p2p.js"></script>
@@ -13,6 +15,7 @@
         <script src="https://supertestnet.github.io/nwcjs/nwcjs.js"></script>
         <!-- <script src="https://unpkg.com/@cmdcode/tapscript@1.5.1"></script> -->
         <script src="https://bundle.run/noble-secp256k1@1.2.14"></script>
+        <script src="https://bundle.run/bech32@2.0.0"></script>
         <script>
             // Give a blind sig to each user after they pay, then have them change their pubkey. In every subsequent message, the user should give the admin their unblinded signature. This ensures that each user can prove they are allowed in the pool but prevents the admin from knowing which member of the pool paid which admission-invoice.
             // var secret_for_message = hedgehog_factory.bytesToHex( blindSigJS.getRand( 32 ) );
@@ -1265,7 +1268,10 @@
                             //the new_second_from_htlc_tx
                             timeout_tx: tapscript.Tx.encode( timeout_txs[ k ] ).hex,
                             time_til_timeout_tx: 4032,
+                            invoice: null,
                         }
+
+                        if ( invoice_to_pay ) hedgehog.state[ chid ].pending_htlc.bolt11 = invoice_to_pay;
 
                         //ensure the balances_before_most_recent_send are updated to the current state
                         //so that, after the htlc gets settled, Bob can add amnt to
@@ -3492,7 +3498,9 @@
                             channels_with_pending_outgoing_htlcs_linked_to_this_one: {},
                             time_when_preimage_was_received: null,
                             time_to_wait_after_preimage_is_received: 2016,
+                            invoice: null,
                         }
+                        if ( invoice ) hedgehog.state[ chid ].pending_htlc.bolt11 = invoice;
                     }
 
                     //test the following scenarios:
@@ -3672,6 +3680,491 @@
                 },
             }
         </script>
+        <script>
+            var modalVanish = () => {
+                $( ".black-bg" ).classList.add( "hidden" );
+                $( ".modal" ).classList.add( "hidden" );
+            }
+            var showModal = content => {
+                $( ".modal" ).innerHTML = `<div class="x_modal" style="position: absolute;right: 1rem;top: 0.5rem;font-size: 2rem; cursor: pointer; color: black;" onclick="modalVanish()">&times;</div>`;
+                $( ".modal" ).innerHTML += `<div style="overflow-y: auto; max-height: 80vh; margin-top: 1.5rem;">${content}</div>`;
+                $( ".black-bg" ).classList.remove( "hidden" );
+                $( ".modal" ).classList.remove( "hidden" );
+            }
+            var showToast = content => {
+                $( '.toast' ).innerHTML = content;
+                $( '.toast' ).classList.add( "show" );
+                setTimeout( () => $( '.toast' ).classList.remove( "show" ), 3000 );
+            }
+            var createQR = content => {
+                var dataUriPngImage = document.createElement( "img" ),
+                s = QRCode.generatePNG( content, {
+                    ecclevel: "M",
+                    format: "html",
+                    fillcolor: "#FFFFFF",
+                    textcolor: "#000000",
+                    margin: 4,
+                    modulesize: 8,
+                });
+                dataUriPngImage.src = s;
+                dataUriPngImage.className = "qr_code";
+                dataUriPngImage.style.width = "100%";
+                return dataUriPngImage;
+            }
+        </script>
+        <script>
+            var brick_wallet = {
+                state: {
+                    last_tx: 1,
+                    offset: 0,
+                    history: {
+                        // abababababababababababababababababababababababababababababababab: {
+                        //     type: "incoming",
+                        //     payment_hash: "ab".repeat( 32 ),
+                        //     invoice: "lnbc1u1pnej54csp58wz0h0962q59k00mjher9w2wkce37qtlqgm629l3w93xuf9fq5espp5zg5wj82f5p266anrzpzg7dpkdzd9ler95un76dqw6p5qxue8dudqhp5uwcvgs5clswpfxhm7nyfjmaeysn6us0yvjdexn9yjkv3k7zjhp2sxq9z0rgqcqpnrzjqwwdmyml3kplktmcertamjf2u2xfmw6ufqn3s88usr0kphhpk7l3jrgzgyqqzmgqqsqqqqlxqqqq2kgqjq9qxpqysgqxx9x8j6f369jy2h3j6r2wfp8g0vmr0v96949yqysjrze00erm6fqa8kdkst5c0w2x2vcd062mfx6drrg4zq89th5w2930klc99d8g8qqdjewm9",
+                        //     bolt11: "lnbc1u1pnej54csp58wz0h0962q59k00mjher9w2wkce37qtlqgm629l3w93xuf9fq5espp5zg5wj82f5p266anrzpzg7dpkdzd9ler95un76dqw6p5qxue8dudqhp5uwcvgs5clswpfxhm7nyfjmaeysn6us0yvjdexn9yjkv3k7zjhp2sxq9z0rgqcqpnrzjqwwdmyml3kplktmcertamjf2u2xfmw6ufqn3s88usr0kphhpk7l3jrgzgyqqzmgqqsqqqqlxqqqq2kgqjq9qxpqysgqxx9x8j6f369jy2h3j6r2wfp8g0vmr0v96949yqysjrze00erm6fqa8kdkst5c0w2x2vcd062mfx6drrg4zq89th5w2930klc99d8g8qqdjewm9",
+                        //     description: "",
+                        //     settled_at: 1738101509,
+                        //     fees_paid: 0,
+                        //     amount: 100000,
+                        //     preimage: "ba".repeat( 32 ),
+                        //     detail_hidden: true,
+                        // },
+                    },
+                    selected_currencies: [],
+                    supported_currencies: [],
+                },
+                loaded: false,
+                waitSomeTime: async milliseconds => new Promise( resolve => setTimeout( resolve, milliseconds ) ),
+                getInvoicePmthash: invoice => {
+                    var decoded = bolt11.decode( invoice );
+                    var i; for ( i=0; i<decoded[ "tags" ].length; i++ ) {
+                        if ( decoded[ "tags" ][ i ][ "tagName" ] == "payment_hash" ) var pmthash = decoded[ "tags" ][ i ][ "data" ].toString();
+                    }
+                    return pmthash;
+                },
+                getInvoiceDescription: invoice => {
+                    var desc = ``;
+                    var decoded = bolt11.decode( invoice );
+                    var i; for ( i=0; i<decoded[ "tags" ].length; i++ ) {
+                        if ( decoded[ "tags" ][ i ][ "tagName" ] == "description" ) desc = decoded[ "tags" ][ i ][ "data" ].toString();
+                    }
+                    return desc;
+                },
+                hexToText: hex => {
+                    var bytes = new Uint8Array( Math.ceil( hex.length / 2 ) );
+                    var i; for ( i=0; i<hex.length; i++ ) bytes[ i ] = parseInt( hex.substr( i * 2, 2 ), 16 );
+                    var text = new TextDecoder().decode( bytes );
+                    return text;
+                },
+                textToHex: text => {
+                    var encoded = new TextEncoder().encode( text );
+                    return Array.from( encoded )
+                        .map( x => x.toString( 16 ).padStart( 2, "0" ) )
+                        .join( "" );
+                },
+                init: async () => {
+                    if ( brick_wallet.loaded ) await brick_wallet.waitSomeTime( 3000 );
+                    if ( Object.keys( brick_wallet.state.history ).length ) {
+                        if ( !brick_wallet.loaded ) brick_wallet.parseHistory();
+                    } else {
+                        if ( brick_wallet.loaded ) $( '.history' ).innerText = 'No history';
+                    }
+                    brick_wallet.loaded = true;
+                    var until = brick_wallet.state.last_tx;
+                    var delay_tolerance = 10;
+                    var limit = 10;
+                    var txs = [];
+                    brick_wallet.parseHistory();
+                    brick_wallet.init();
+                },
+                parseHistory: () => {
+                    var history = [];
+                    Object.keys( brick_wallet.state.history ).forEach( txid => history.push( brick_wallet.state.history[ txid ] ) );
+                    history.sort( ( a, b ) => b[ "settled_at" ] - a[ "settled_at" ] );
+                    var remove_before = brick_wallet.state.offset * 5;
+                    history.splice( 0, remove_before );
+                    history.length = 5;
+                    var html = ``;
+                    if ( history.length ) {
+                        $( '.hist_btns' ).classList.remove( "hidden" );
+                        var len_of_hist = Object.keys( brick_wallet.state.history ).length;
+                        if ( ( brick_wallet.state.offset + 1 ) * 5 >= len_of_hist ) $( '.hist_fwd' ).disabled = true;
+                        else $( '.hist_fwd' ).disabled = false;
+                        if ( !brick_wallet.state.offset ) $( '.hist_back' ).disabled = true;
+                        else $( '.hist_back' ).disabled = false;
+                        if ( brick_wallet.state.offset < 0 ) brick_wallet.state.offset = 0;
+                        $( '.hist_fwd' ).onclick = () => {
+                            if ( $( '.hist_fwd' ).disabled ) return;
+                            var len_of_hist = Object.keys( brick_wallet.state.history ).length;
+                            if ( ( brick_wallet.state.offset + 2 ) * 5 >= len_of_hist ) $( '.hist_fwd' ).disabled = true;
+                            $( '.hist_back' ).disabled = false;
+                            brick_wallet.state.offset = brick_wallet.state.offset + 1;
+                            brick_wallet.parseHistory();
+                        }
+                        $( '.hist_back' ).onclick = () => {
+                            if ( $( '.hist_back' ).disabled ) return;
+                            $( '.hist_fwd' ).disabled = false;
+                            brick_wallet.state.offset = brick_wallet.state.offset - 1;
+                            if ( brick_wallet.state.offset < 0 ) brick_wallet.state.offset = 0;
+                            if ( !brick_wallet.state.offset ) $( '.hist_back' ).disabled = true;
+                            brick_wallet.parseHistory();
+                        }
+                    }
+                    history.forEach( tx => {
+                        if ( !tx ) return;
+                        var txid = tx[ "payment_hash" ];
+                        var invoice;
+                        if ( "invoice" in tx ) invoice = tx[ "invoice" ];
+                        if ( "bolt11" in tx ) invoice = tx[ "bolt11" ];
+                        if ( $( '.invoice_box' ) && $( '.invoice_box' ).innerText === invoice ) {
+                            if ( !$( '.modal' ).classList.contains( "hidden" ) ) $( '.x_modal' ).click();
+                            $( '.invoice_box' ).innerText = "";
+                        }
+                        var arrow = `<span class="noselect arrow incoming_arrow">&#8601;</span>`;
+                        var incoming_or_outgoing = "incoming_tx";
+                        if ( tx[ "type" ] === "outgoing" ) {
+                            arrow = `<span class="noselect arrow outgoing_arrow">&#8599;</span>`;
+                            incoming_or_outgoing = "outgoing_tx";
+                        }
+                        var desc_div = `
+                            <div class="tx_detail_big">
+                                <p style="font-weight: bold;">Description</p>
+                                <p class="desc_div"></p>
+                            </div>
+                        `;
+                        var pmthash_div = "";
+                        if ( "payment_hash" in tx && tx[ "payment_hash" ] ) pmthash_div = `
+                            <div class="tx_detail_big">
+                                <p style="font-weight: bold;">Payment hash</p>
+                                <p>${tx[ "payment_hash" ]}</p>
+                            </div>
+                        `;
+                        var invoice_div = "";
+                        if ( "invoice" in tx && tx[ "invoice" ] ) invoice_div = `
+                            <div class="tx_detail_big">
+                                <p style="font-weight: bold;">Invoice</p>
+                                <p>${tx[ "invoice" ]}</p>
+                            </div>
+                        `;
+                        if ( "bolt11" in tx && tx[ "bolt11" ] ) invoice_div = `
+                            <div class="tx_detail_big">
+                                <p style="font-weight: bold;">Invoice</p>
+                                <p>${tx[ "bolt11" ]}</p>
+                            </div>
+                        `;
+                        var preimage_div = "";
+                        if ( "preimage" in tx && tx[ "preimage" ] ) preimage_div = `
+                            <div class="tx_detail_big">
+                                <p style="font-weight: bold;">Preimage</p>
+                                <p>${tx[ "preimage" ]}</p>
+                            </div>
+                        `;
+                        var hidden_or_shown = tx[ "detail_hidden" ] ? "hidden" : "";
+                        var txdata = `
+                            <div class="clickable_tx_parent" data-txid="${txid}">
+                                <div class="clickable_tx ${incoming_or_outgoing}">
+                                    ${arrow}
+                                    <span class="noselect tx_amt" data-sats="${Math.floor( ( tx[ "amount" ] + tx[ "fees_paid" ] ) / 1000 )}">${Math.floor( ( tx[ "amount" ] + tx[ "fees_paid" ] ) / 1000 )} sats</span>
+                                </div>
+                                <div class="hidable_tx_data ${hidden_or_shown}">
+                                    <div class="tx_detail">
+                                        <span>Amount</span><span>${Math.floor( tx[ "amount" ] / 1000 )} sats</span>
+                                    </div>
+                                    <div class="tx_detail">
+                                        <span>Fees</span><span>${Math.floor( tx[ "fees_paid" ] / 1000 )} sats</span>
+                                    </div>
+                                    <div class="tx_detail">
+                                        <span>Time</span><div>${new Date( tx[ "settled_at" ] * 1000 ).toLocaleDateString( "en-CA" ) + "<br>" + new Date( tx[ "settled_at" ] * 1000 ).toLocaleTimeString()}</div>
+                                    </div>
+                                    ${desc_div}
+                                    ${pmthash_div}
+                                    ${preimage_div}
+                                    ${invoice_div}
+                                </div>
+                            </div>
+                        `;
+                        html = html + txdata;
+                    });
+                    var div = document.createElement( "div" );
+                    div.innerHTML = html;
+                    history.forEach( ( tx, index ) => {
+                        if ( !tx ) return;
+                        div.getElementsByClassName( "desc_div" )[ index ].innerText = tx[ "description" ] || "[No description]"
+                    });
+                    $( '.history' ).innerHTML = '';
+                    $( '.history' ).append( div );
+                    $$( '.clickable_tx' ).forEach( item => {
+                        item.onclick = () => {
+                            var parent = item.parentElement;
+                            var txid = parent.getAttribute( "data-txid" );
+                            var hidable = parent.getElementsByClassName( "hidable_tx_data" )[ 0 ];
+                            if ( !hidable.classList.contains( "hidden" ) ) {
+                                brick_wallet.state.history[ txid ][ "detail_hidden" ] = true;
+                                hidable.classList.add( "hidden" );
+                            } else {
+                                brick_wallet.state.history[ txid ][ "detail_hidden" ] = false;
+                                hidable.classList.remove( "hidden" );
+                            }
+                        }
+                    });
+                    balance.setState(()=>{});
+                }
+            }
+            var balance = {
+                html: async () => {
+                    var sats = balance.bal;
+                    var bal_to_show = sats;
+                    var currency = balance.currencies[ balance.currency ];
+                    if ( currency !== "sats" && currency !== "btc" && currency !== "usd" && !( currency in balance.forex ) ) {
+                        var rate = await balance.getTicker( currency.toUpperCase() );
+                        balance.forex[ currency ] = rate;
+                    }
+                    if ( currency === "usd" ) {
+                        bal_to_show = balance.satsToDollars( balance.bal );
+                        bal_to_show = bal_to_show.toFixed( 2 );
+                        bal_to_show = Number( bal_to_show ).toLocaleString();
+                        if ( bal_to_show.includes( "." ) && bal_to_show.length - bal_to_show.indexOf( "." ) == 2 ) bal_to_show = bal_to_show + "0";
+                    }
+                    if ( currency === "btc" ) {
+                        bal_to_show = balance.satsToBitcoin( balance.bal );
+                    }
+                    if ( currency !== "sats" && currency !== "btc" && currency !== "usd" ) {
+                        bal_to_show = balance.satsToDollars( balance.bal );
+                        var USDFNX = balance.forex[ currency ];
+                        bal_to_show = USDFNX * bal_to_show;
+                        bal_to_show = bal_to_show.toFixed( 2 );
+                        bal_to_show = Number( bal_to_show ).toLocaleString();
+                        if ( bal_to_show.includes( "." ) && bal_to_show.length - bal_to_show.indexOf( "." ) == 2 ) bal_to_show = bal_to_show + "0";
+                    }
+                    if ( currency === "sats" ) bal_to_show = Number( bal_to_show ).toLocaleString();
+                    $$( '.tx_amt' ).forEach( tx_amt => {
+                        var bal_for_tx_amt = Number( tx_amt.getAttribute( "data-sats" ) );
+                        if ( currency === "usd" ) {
+                            bal_for_tx_amt = balance.satsToDollars( bal_for_tx_amt );
+                            bal_for_tx_amt = bal_for_tx_amt.toFixed( 2 );
+                            bal_for_tx_amt = Number( bal_for_tx_amt ).toLocaleString();
+                            if ( bal_for_tx_amt.includes( "." ) && bal_for_tx_amt.length - bal_for_tx_amt.indexOf( "." ) == 2 ) bal_for_tx_amt = bal_for_tx_amt + "0";
+                        }
+                        if ( currency === "btc" ) {
+                            bal_for_tx_amt = balance.satsToBitcoin( bal_for_tx_amt );
+                        }
+                        if ( currency !== "sats" && currency !== "btc" && currency !== "usd" ) {
+                            bal_for_tx_amt = balance.satsToDollars( bal_for_tx_amt );
+                            var USDFNX = balance.forex[ currency ];
+                            bal_for_tx_amt = USDFNX * bal_for_tx_amt;
+                            bal_for_tx_amt = bal_for_tx_amt.toFixed( 2 );
+                            bal_for_tx_amt = Number( bal_for_tx_amt ).toLocaleString();
+                            if ( bal_for_tx_amt.includes( "." ) && bal_for_tx_amt.length - bal_for_tx_amt.indexOf( "." ) == 2 ) bal_for_tx_amt = bal_for_tx_amt + "0";
+                        }
+                        if ( currency === "sats" ) bal_for_tx_amt = Number( bal_for_tx_amt ).toLocaleString();
+                        tx_amt.innerText = bal_for_tx_amt + ` ${currency}`
+                    });
+                    return `
+                        <span class="noselect" data-sats_sum="${sats}">${bal_to_show} ${currency}</span>
+                    `;
+                },
+                bal: 0,
+                currency: 0,
+                currencies: [
+                    "sats",
+                    "btc",
+                    "usd",
+                ],
+                supported_currencies: [
+                    "eur",
+                    "gbp",
+                    "cad",
+                    "cny",
+                    "jpy",
+                    "inr",
+                    "rub",
+                    "mxn",
+                ],
+                forex: {},
+                forex_loaded: false,
+                price: 0,
+                onlongtouch: null,
+                longtouchtimer: null,
+                touchduration: 800,
+                switchCurrency: () => {
+                    balance.setState(() => balance.currency = ( balance.currency + 1 ) % balance.currencies.length );
+                },
+                getBitcoinPriceFromCoinbase: async () => {
+                    var data = await fetch( "https://api.coinbase.com/v2/prices/BTC-USD/spot" );
+                    data = await data.text();
+                    var json = JSON.parse( data );
+                    var price = json[ "data" ][ "amount" ];
+                    return price;
+                },
+                getBitcoinPriceFromKraken: async () => {
+                    var data = await fetch( "https://api.kraken.com/0/public/Ticker?pair=XBTUSD" );
+                    data = await data.text();
+                    var json = JSON.parse( data );
+                    var price = json[ "result" ][ "XXBTZUSD" ][ "a" ][ 0 ];
+                    return price;
+                },
+                getBitcoinPriceFromCoindesk: async () => {
+                    var data = await fetch( "https://api.coindesk.com/v1/bpi/currentprice.json" );
+                    data = await data.text();
+                    var json = JSON.parse( data );
+                    var price = json[ "bpi" ][ "USD" ][ "rate_float" ];
+                    return price;
+                },
+                getBitcoinPriceFromGemini: async () => {
+                    var data = await fetch( "https://api.gemini.com/v2/ticker/BTCUSD" );
+                    data = await data.text();
+                    var json = JSON.parse( data );
+                    var price = json[ "bid" ];
+                    return price;
+                },
+                getBitcoinPriceFromCoinGecko: async () => {
+                    var data = await fetch( "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&precision=2" );
+                    data = await data.text();
+                    var json = JSON.parse( data );
+                    var price = json[ "bitcoin" ][ "usd" ];
+                    return price;
+                },
+                getBitcoinPrice: async () => {
+                    var prices = [];
+                    var cbprice = await balance.getBitcoinPriceFromCoinbase();
+                    var kprice = await balance.getBitcoinPriceFromKraken();
+                    var cdprice = await balance.getBitcoinPriceFromCoindesk();
+                    var gprice = await balance.getBitcoinPriceFromGemini();
+                    var cgprice = await balance.getBitcoinPriceFromCoinGecko();
+                    prices.push( Number( cbprice ), Number( kprice ), Number( cdprice ), Number( gprice ), Number( cgprice ) );
+                    prices.sort();
+                    return prices[ 2 ];
+                },
+                getPrice: async () => {
+                    balance.price = await balance.getBitcoinPrice();
+                    await brick_wallet.waitSomeTime( 15_000 );
+                    balance.getPrice();
+                },
+                getTicker: async ticker => {
+                    var url = `https://assets.ino.com/data/quote/?format=json&s=FOREX_USD${ticker}`;
+                    var data = await fetch( url );
+                    var json = await data.json();
+                    return Number( json[ `FOREX_USD${ticker}` ][ "last" ] );
+                },
+                satsToDollars: sats => {
+                    if ( sats >= 100000000 ) sats = sats * 10;
+                    var value_in_dollars = Number( String( sats ).padStart( 8, "0" ).slice( 0,-9 ) + "." + String( sats ).padStart( 8, "0" ).slice( -9 ) ) * balance.price;
+                    return value_in_dollars;
+                },
+                satsToBitcoin: sats => {
+                    var btc = String( sats ).padStart( 8, "0" ).slice( 0,-8 ) + "." + String( sats ).padStart( 8, "0" ).slice( -8 );
+                    if ( btc.endsWith( "00000" ) ) {
+                        btc = btc.substring( 0, btc.length - 5 );
+                        var i; for ( i=0; i<5; i++ ) {
+                            if ( btc.endsWith( "0" ) ) btc = btc.substring( 0, btc.length - 1 );
+                        }
+                        if ( btc.endsWith( "." ) ) btc = btc.substring( 0, btc.length - 1 );
+                        if ( !btc ) btc = 0;
+                    }
+                    return btc;
+                },
+                setState: (callback) => {
+                    callback();
+                    balance.render();
+                },
+                // calculateBalance: () => {
+                //     balance.setState(() => {
+                //         var sum = 0;
+                //         Object.keys( brick_wallet.state.history ).forEach( txid => {
+                //             var tx = brick_wallet.state.history[ txid ];
+                //             if ( tx.type === "incoming" ) sum = sum + tx[ "amount" ];
+                //             else sum = sum - ( tx[ "amount" ] + tx[ "fees_paid" ] );
+                //         });
+                //         balance.bal = Math.floor( sum / 1000 );
+                //     });
+                // },
+                addCurrency: item => {
+                    item.onclick = () => {
+                        var btn = document.createElement( "button" );
+                        btn.innerText = item.innerText;
+                        btn.addEventListener( "click", ()=>{balance.removeCurrency( btn );});
+                        btn.click();
+                        $( '.selected_currencies' ).append( btn );
+                        item.remove();
+                    }
+                },
+                removeCurrency: item => {
+                    item.onclick = () => {
+                        var btn = document.createElement( "button" );
+                        btn.innerText = item.innerText;
+                        btn.addEventListener( "click", ()=>{balance.addCurrency( btn );});
+                        btn.click();
+                        $( '.supported_currencies' ).append( btn );
+                        item.remove();
+                    }
+                },
+                modCurrencies: async () => {
+                    var selected_currencies = [];
+                    $$( '.selected_currencies button' ).forEach( item => {selected_currencies.push( item.innerText );});
+                    var supported_currencies = [];
+                    $$( '.supported_currencies button' ).forEach( item => {supported_currencies.push( item.innerText );});
+                    balance.currencies = selected_currencies;
+                    balance.supported_currencies = supported_currencies;
+                    balance.currency = 0;
+                    balance.render();
+                    if ( "selected_currencies" in brick_wallet.state ) brick_wallet.state[ "selected_currencies" ] = [];
+                    if ( "supported_currencies" in brick_wallet.state ) brick_wallet.state[ "supported_currencies" ] = [];
+                    brick_wallet.state[ "selected_currencies" ] = selected_currencies;
+                    brick_wallet.state[ "supported_currencies" ] = supported_currencies;
+                    var i; for ( i=0; i<balance.currencies.length; i++ ) {
+                        var currency = balance.currencies[ i ];
+                        if ( currency !== "sats" && currency !== "btc" && currency !== "usd" && !( currency in balance.forex ) ) {
+                            var rate = await balance.getTicker( currency.toUpperCase() );
+                            // console.log( `got rate for ${currency}: 1 usd = ${rate} ${currency}` );
+                            balance.forex[ currency ] = rate;
+                            await brick_wallet.waitSomeTime( 2000 );
+                        }
+                    }
+                },
+                render: async () => {
+                    $( '.balance' ).innerHTML = await balance.html();
+                    $( '.balance' ).onpointerdown = function() {
+                        balance.onlongtouch = async () => {
+                            balance.longtouchtimer = null;
+                            var html = `
+                                <p>Add/remove currencies</p>
+                                <p class="selected_currencies"></p>
+                                <p>Quick-tapping the price will toggle through the above currencies in order. Add currencies by tapping them in the list below; remove them by tapping them in the list above.</p>
+                                <p class="supported_currencies"></p>
+                                <p><button class="submit_currencies_form" onclick="balance.modCurrencies();sessionStorage[ 'modal_cleared' ] = true;modalVanish();">Submit</button></p>
+                            `;
+                            sessionStorage.removeItem( "modal_cleared" );
+                            var block_til_clear = true;
+                            showModal( html, block_til_clear );
+                            balance.currencies.forEach( item => {
+                                var btn = document.createElement( "button" );
+                                btn.innerText = item;
+                                btn.addEventListener( "click", ()=>{balance.removeCurrency( btn );});
+                                btn.click();
+                                $( '.selected_currencies' ).append( btn );
+                            });
+                            balance.supported_currencies.forEach( item => {
+                                var btn = document.createElement( "button" );
+                                btn.innerText = item;
+                                btn.addEventListener( "click", ()=>{balance.addCurrency( btn );});
+                                btn.click();
+                                $( '.supported_currencies' ).append( btn );
+                            });
+                            await hedgehog_factory.getNote( "modal_cleared" );
+                            delete hedgehog_factory.retrievables[ "modal_cleared" ];
+                        };
+                        if ( !balance.longtouchtimer || ( !isNaN( balance.longtouchtimer ) && balance.longtouchtimer != null ) ) {
+                            balance.longtouchtimer = setTimeout( balance.onlongtouch, balance.touchduration );
+                        }
+                    }
+                    $( '.balance' ).onpointerup = function( e ) {
+                        if ( balance.longtouchtimer ) clearTimeout( balance.longtouchtimer );
+                        if ( balance.longtouchtimer ) balance.switchCurrency();
+                    }
+                }
+            }
+        </script>
         <style>
             * {
                 box-sizing: border-box;
@@ -3728,6 +4221,219 @@
             @media screen and (max-width: 600px) {
             }
         </style>
+        <style>
+            .black-bg {
+                width: 100%;
+                position: fixed;
+                top: 0;
+                left: 0;
+                background-color: black;
+                opacity: .5;
+                width: 100vw;
+                height: 100vh;
+            }
+            .modal {
+                position: fixed;
+                box-sizing: border-box;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%,-50%);
+                width: 90%;
+                max-width: 560px;
+                background-color: white;
+                border-radius: 1rem;
+                padding: 20px;
+                color: black;
+                text-align: center;
+                word-wrap: break-word;
+            }
+            .modal * {
+                color: black;
+            }
+            .modal input, .modal textarea {
+                max-width: 90%;
+            }
+            .toast {
+                box-sizing: border-box;
+                visibility: hidden;
+                width: 250px;
+                margin-left: -125px;
+                background-color: rgb(97, 235, 52);
+                color: white;
+                text-align: center;
+                border-radius: 2px;
+                padding: 16px;
+                position: fixed;
+                z-index: 1;
+                left: 50%;
+                bottom: 30px;
+            }
+            .toast.show {
+                visibility: visible;
+                -webkit-animation: fadein 0.5s, fadeout 0.5s 2.5s;
+                animation: fadein 0.5s, fadeout 0.5s 2.5s;
+            }
+            @-webkit-keyframes fadein {
+                from {bottom: 0; opacity: 0;}
+                to {bottom: 30px; opacity: 1;}
+            }
+            @keyframes fadein {
+                from {bottom: 0; opacity: 0;}
+                to {bottom: 30px; opacity: 1;}
+            }
+            @-webkit-keyframes fadeout {
+                from {bottom: 30px; opacity: 1;}
+                to {bottom: 0; opacity: 0;}
+            }
+            @keyframes fadeout {
+                from {bottom: 30px; opacity: 1;}
+                to {bottom: 0; opacity: 0;}
+            }
+        </style>
+        <style>
+            .balance span {
+                cursor: pointer;
+            }
+            .wallet_body, .send_page, .receive_page {
+                max-width: 15rem;
+                margin: auto;
+                word-wrap: break-word;
+            }
+            .send_page, .receive_page {
+                max-width: 30rem;
+            }
+            .wallet_button {
+                background-color: #77a8fc;
+                color: white !important;
+                font-weight: bold;
+                padding: .2rem;
+                width: 7rem;
+                font-size: 80%;
+            }
+            .hist_btn {
+                width: 2rem;
+            }
+            .hist_btn:disabled {
+                background-color: #cccccc;
+            }
+            .wallet_btns, .send_scanner_btns, .receive_scanner_btns {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: space-around;
+            }
+            .send_scanner_btns button, .receive_scanner_btns button {
+                margin: .5rem;
+            }
+            .invoice_box {
+                margin-top: 1rem;
+                border: 1px solid black;
+                color: black;
+                font-family: monospace;
+                padding: 0.5rem;
+                max-width: 15rem;
+            }
+            .hist_btns {
+                display: flex;
+                justify-content: space-between;
+                margin-bottom: 1rem;
+            }
+            .noselect {
+                -webkit-touch-callout: none; /* iOS Safari */
+                -webkit-user-select: none; /* Safari */
+                -khtml-user-select: none; /* Konqueror HTML */
+                -moz-user-select: none; /* Old versions of Firefox */
+                -ms-user-select: none; /* Internet Explorer/Edge */
+                user-select: none; /* Non-prefixed version, currently
+                supported by Chrome, Edge, Opera and Firefox */
+            }
+            .arrow {
+                display: flex;
+                padding: .5rem;
+                border-radius: 50%;
+                width: 2rem;
+                height: 2rem;
+                justify-content: center;
+                align-items: center;
+            }
+            .arrow.incoming_arrow {
+                border: 1px solid #52b354;
+            }
+            .arrow.outgoing_arrow {
+                border: 1px solid #77a8fc;
+            }
+            .history > :first-child {
+                border-top: 1px solid black;
+            }
+            .clickable_tx_parent {
+                border-bottom: 1px solid black;
+            }
+            .incoming_tx, .outgoing_tx {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding-bottom: .5rem;
+                padding-top: .5rem;
+                cursor: pointer;
+            }
+            .incoming_tx {
+                color: #52b354;
+            }
+            .outgoing_tx {
+                color: #77a8fc;
+            }
+            .hidable_tx_data {
+                background-color: #cccccc;
+                padding: .5rem;
+                margin-bottom: .5rem;
+            }
+            .tx_detail {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin: .5rem 0;
+            }
+            .tx_detail_big {
+                margin: .5rem 0;
+            }
+            .eject {
+                margin: 1rem 0rem;
+                width: 100%;
+            }
+            .supported_currencies button,
+            .selected_currencies button {
+                margin: .5rem;
+            }
+            .copy_box {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                height: 2.2rem;
+            }
+            .copy_addy {
+                width: 100%;
+                max-width: 78%;
+                word-wrap: break-word;
+                background-color: #cccccc;
+                border: 1px solid black;
+                padding: .3rem;
+                height: 100%;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                display: block;
+            }
+            .copy_btn {
+                width: 100%;
+                max-width: 18%;
+                text-align: center;
+                background-color: #cccccc;
+                border: 1px solid black;
+                padding: .3rem;
+                height: 100%;
+                padding-top: 3%;
+                cursor: pointer;
+            }
+        </style>
         <script>
             var $ = document.querySelector.bind( document );
             var $$ = document.querySelectorAll.bind( document );
@@ -3781,9 +4487,36 @@
             </div>
         </div>
         <div class="wallet_page hidden">
+            <div class="send_page hidden">
+                <div id="send_scanner"></div>
+                <p class="send_scanner_btns"><button class="wallet_button paste_invoice">Paste invoice</button><button class="wallet_button cancel_send_scanner">Cancel</button><button class="wallet_button close_send_scanner">Close scanner</button><button class="wallet_button open_send_scanner hidden">Open scanner</button><button class="wallet_button enter_ln_address">Enter LN address</button></p>
+            </div>
+            <div class="receive_page hidden">
+                <div id="receive_scanner"></div>
+                <div class="receive_form">
+                    <p>Enter the amount you want to receive or paste an lnurl withdraw code</p>
+                    <p><input class="receive_amnt"></p>
+                </div>
+                <p class="receive_scanner_btns"><button class="wallet_button submit_receive_form">Submit</button><button class="wallet_button cancel_receive">Cancel</button><button class="wallet_button close_receive_scanner hidden">Close scanner</button><button class="wallet_button open_receive_scanner">Open scanner</button></p>
+            </div>
+            <div class="wallet_body">
+                <center><p class="balance" style="font-weight: bold;">loading balance...</p></center></h1>
+                <div class="wallet_btns">
+                    <button class="wallet_button send">Send</button>
+                    <button class="wallet_button receive">Receive</button>
+                </div>
+                <center><div class="invoice_box hidden"></div></center>
+                <!-- <center><p style="font-weight: bold;">History</p></center> -->
+                <br>
+                <center><div class="hist_btns hidden"><button class="wallet_button hist_btn hist_back"><</button><button class="wallet_button hist_btn hist_fwd">></button></div></center>
+                <center><div class="history">loading history...</div></center>
+                <center><button class="wallet_button eject">Eject</button></center>
+            </div>
+            <!--             
             <div>Balance</div>
             <div><span class="balance">loading...</span></div>
             <div class="wallet_btns"><button class="send_btn">Send</button><button class="receive_btn">Receive</button><button class="eject_btn">Eject</button></div>
+            -->
         </div>
         <div class="ejection_buttons admin_only hidden"></div>
         <script>
@@ -4636,6 +5369,7 @@
                     }
                     var i; for ( i=0; i<all_peers.length; i++ ) $( '.ejection_buttons' ).innerHTML = $( '.ejection_buttons' ).innerHTML + `<button onclick="hedgehog_factory.ejectUser( ${i}, '${state_id}' );" class="eject_user_btn">Eject user ${i + 1}</button>`;
                     $$( '.signer .progressBar' ).forEach( item => item.style.width = `100%` );
+                    $( '.validation_phase .progressBar' ).style.width = `100%`;
                     setTimeout( () => {showPage( 'ejection_buttons' );}, 2000 );
                     var sig_for_funding_tx = tapscript.Signer.taproot.sign( privkey, funding_tx, 0 );
                     funding_tx.vin[ 0 ].witness = [ sig_for_funding_tx ];
@@ -4786,8 +5520,8 @@
                     var hedgehog_chan_ids = [];
                     var msg_id = state_id;
                     state.opening_info_for_hedgehog_channels[ state.pubkey ].forEach( item => hedgehog_chan_ids.push( item.chan_id ) );
-                    $( '.send_btn' ).setAttribute( "data-state_id", state_id );
-                    $( '.send_btn' ).onclick = async e => {
+                    $( '.send' ).setAttribute( "data-state_id", state_id );
+                    $( '.send' ).onclick = async e => {
                         var invoice = prompt( `enter an ln invoice` );
                         var state_id = e.target.getAttribute( "data-state_id" );
                         var htlc_hash = hedgehog.getInvoicePmthash( invoice );
@@ -4795,8 +5529,8 @@
                         if ( !amnt || !htlc_hash || amnt < 0 ) return alert( `error` );
                         var info_for_bob = await hedgehog.aliceSendsHtlc( state_id, amnt, htlc_hash, invoice );
                     }
-                    $( '.receive_btn' ).setAttribute( "data-state_id", state_id );
-                    $( '.receive_btn' ).onclick = async e => {
+                    $( '.receive' ).setAttribute( "data-state_id", state_id );
+                    $( '.receive' ).onclick = async e => {
                         var amnt = Number( prompt( `enter an amount you want to receive` ) );
                         if ( !amnt ) return;
                         // var chan_ids = JSON.parse( e.target.getAttribute( "data-hedgehog_chan_ids" ) );
@@ -4813,10 +5547,11 @@
                             }
                         });
                         state.amount_alice_expects_in_next_htlc = amnt;
+                        var node = state.node;
                         node.send( 'initiate_ln_receive', msg, recipient, msg_id );
                     }
-                    $( '.eject_btn' ).setAttribute( "data-state_id", state_id );
-                    $( '.eject_btn' ).onclick = e => {
+                    $( '.eject' ).setAttribute( "data-state_id", state_id );
+                    $( '.eject' ).onclick = e => {
                         var state_id = e.target.getAttribute( "data-state_id" );
                         var round = Number( prompt( `enter what round we are in` ) );
                         hedgehog_factory.state[ state_id ].current_round = round;
@@ -4937,6 +5672,7 @@
                     var chan_ids = [];
                     state.opening_info_for_hedgehog_channels[ state.pubkey ].forEach( opener => chan_ids.push( opener.chan_id ) );
                     var all_sigs_and_stuff = [];
+                    var pending_htlc = JSON.parse( JSON.stringify( hedgehog.state[ chan_ids[ 0 ] ].pending_htlc ) );
                     var k; for ( k=0; k<chan_ids.length; k++ ) {
                         var chan_id = chan_ids[ k ];
                         //TODO: abort if the data is invalid
@@ -4955,6 +5691,28 @@
                     });
                     var node = state.node;
                     node.send( 'resolve_htlc', msg, recipient, msg_id );
+                    if ( pending_htlc.hasOwnProperty( "bolt11" ) ) {
+                        var bolt11 = pending_htlc.bolt11;
+                        var pmthash_for_hedgehog = brick_wallet.getInvoicePmthash( bolt11 );
+                        var desc_for_hedgehog = brick_wallet.getInvoiceDescription( bolt11 );
+                        var amt_for_hedgehog = hedgehog.getInvoiceAmount( bolt11 );
+                        brick_wallet.state.history[ pmthash_for_hedgehog ] = {
+                            type: "outgoing",
+                            payment_hash: pmthash_for_hedgehog,
+                            invoice: bolt11,
+                            bolt11,
+                            description: desc_for_hedgehog,
+                            settled_at: Math.floor( Date.now() / 1000 ),
+                            fees_paid: 0,
+                            amount: amt_for_hedgehog * 1000,
+                            preimage,
+                            detail_hidden: true,
+                        }
+                        setTimeout( () => {
+                            var mybal = hedgehog.state[ chan_ids[ 0 ] ].balances[ 0 ];
+                            balance.setState( () => balance.bal = mybal );
+                        }, 500 );
+                    }
                 },
                 runResolveHTLC: async ( msg, state_id ) => {
                     var json = JSON.parse( msg.dat );
@@ -5120,9 +5878,31 @@
                                 // console.log( 186, hedgehog.state[ chan_id ].balances[ 0 ], hedgehog.state[ chan_id ].pending_htlc.amnt, sigs_and_stuff.amnt );
                                 var skip_pending_check = true;
                                 hedgehog.receive( sigs_and_stuff, skip_pending_check );
+                                if ( hedgehog.state[ chan_id ].pending_htlc.hasOwnProperty( "bolt11" ) ) {
+                                    var bolt11 = hedgehog.state[ chan_id ].pending_htlc.bolt11;
+                                    var pmthash_for_hedgehog = brick_wallet.getInvoicePmthash( bolt11 );
+                                    var desc_for_hedgehog = brick_wallet.getInvoiceDescription( bolt11 );
+                                    var amt_for_hedgehog = hedgehog.getInvoiceAmount( bolt11 );
+                                    brick_wallet.state.history[ pmthash_for_hedgehog ] = {
+                                        type: "incoming",
+                                        payment_hash: pmthash_for_hedgehog,
+                                        invoice: bolt11,
+                                        bolt11,
+                                        description: desc_for_hedgehog,
+                                        settled_at: Math.floor( Date.now() / 1000 ),
+                                        fees_paid: 0,
+                                        amount: amt_for_hedgehog * 1000,
+                                        preimage,
+                                        detail_hidden: true,
+                                    }
+                                }
                                 hedgehog.state[ chan_id ].pending_htlc = {}
                                 //TODO: as soon as you resolve the htlc get Alice and Bob to both revoke their prior states
                             }
+                            setTimeout( () => {
+                                var mybal = hedgehog.state[ hedgehog_factory.state[ state_id ].opening_info_for_hedgehog_channels[ hedgehog_factory.state[ state_id ].pubkey ][ 0 ].chan_id ].balances[ 0 ];
+                                balance.setState( () => balance.bal = mybal );
+                            }, 500 );
                             return;
                         }
                         //if the admin sends the "payment_succeeded" signal, settle the htlc
@@ -5408,6 +6188,10 @@
                 hedgehog_factory.setSigningTimer( randomized_peers, state_id, utxos_for_protocol, sats_per_byte, change_address );
                 hedgehog_factory.startSigning( msg, state_id );
             }
+            brick_wallet.init();
         </script>
+        <div class="black-bg hidden" onclick="modalVanish();"></div>
+        <div class="modal hidden"></div>
+        <div class="toast"></div>
     </body>
 </html>
