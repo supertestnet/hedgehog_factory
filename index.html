@@ -3703,6 +3703,20 @@
             .minutes_selector span {
                 margin-left: .5rem;
             }
+            .view_signers {
+                text-align: center;
+            }
+            .signer {
+                display: inline-block;
+                border: 1px solid black;
+                border-radius: 1rem;
+                max-width: 12rem;
+                padding: 1rem;
+                margin: .5rem;
+            }
+            .signer img {
+                width: 100%;
+            }
             @media screen and (max-width: 600px) {
             }
         </style>
@@ -3747,6 +3761,7 @@
                 <p><button class="start_signing_ceremony">Start signing ceremony</button></p>
             </div>
         </div>
+        <div class="view_signers hidden"></div>
         <div class="wallet_page hidden">
             <div>Balance</div>
             <div><span class="balance">loading...</span></div>
@@ -3886,6 +3901,8 @@
                         admin_preimage_for_own_hedgehog_channel: null,
                         opening_info_for_hedgehog_channels: {},
                         signing_started: false,
+                        signing_finished: false,
+                        signing_progress: {},
                         nwc_string: null,
                         loop_delay: 20,
                         amount_alice_expects_in_next_htlc: 0,
@@ -3932,6 +3949,7 @@
                     var amount_per_user_to_cover_p2a_costs = state.amount_per_user_to_cover_p2a_costs;
                     var backup_pubkey = state.backup_pubkey;
                     var msg_id = state_id;
+                    state.signing_started = true;
 
                     //if you are the admin, clear your hedgehog.keypairs object and insert the keypairs
                     //belonging to the people who paid and have not been kicked out
@@ -3957,6 +3975,27 @@
                     peers.unshift( routing_node );
                     state.all_peers = JSON.parse( JSON.stringify( peers ) );
                     var all_peers = state.all_peers;
+
+                    peers.forEach( peer => {
+                        var signer = `
+                            <div class="signer signer_${peer}">
+                                <img src="https://upload.wikimedia.org/wikipedia/commons/a/ac/Default_pfp.jpg">
+                                <p>${peer.substring( 0, 4 ) + "..." + peer.substring( peer.length - 4 )}</p>
+                                <div class="progress">
+                                    <p style="font-weight: bold;">Progress bar <span id="goal" style="font-size: .8em; font-weight: normal;"></span></p>
+                                    <div class="progressOutline" style="height: 2em; border: 1px solid grey; border-radius: 25px; overflow: hidden;">
+                                        <div class="progressBar" style="height: 2em; background-color: #61eb34; width: 0%; transition: width 1s;">
+                                        </div>
+                                    </div>
+                                    <div class="status"></div>
+                                </div>
+                            </div>
+                        `;
+                        var signer_div = document.createElement( "div" );
+                        signer_div.innerHTML = signer;
+                        $( '.view_signers' ).append( signer_div.firstElementChild );
+                    });
+                    showPage( 'view_signers' );
 
                     // Have every party independently validate that the list has no repeats
                     var duplicates = peers.filter( ( item, index ) => peers.indexOf( item ) !== index );
@@ -4144,6 +4183,7 @@
                         var all_connector_sigs_for_this_round = [];
                         var all_withdrawal_txids_for_this_round = [];
                         var all_ejection_txs_for_this_round = [];
+                        var data_is_sent = false;
                         var j; for ( j=0; j<num_of_users; j++ ) {
                             //in the codeblock beginning above, j represents a user
                             var eject_user_tx = tapscript.Tx.create({
@@ -4188,6 +4228,16 @@
                             var connector_sig = tapscript.Signer.taproot.sign( privkey, eject_user_tx, 1, { extension: connector_tapleaf } ).hex;
                             totalnum = totalnum + 1;
                             console.log( `${totalnum} out of ${( num_of_users ** 2 ) * 2} signatures created` );
+                            if ( String( totalnum ).endsWith( "00" ) && !data_is_sent && peers[ 0 ] !== pubkey ) {
+                                data_is_sent = true;
+                                node.send( 'signing_progress', String( totalnum ), peers[ 0 ], msg_id );
+                            }
+                            if ( params.hasOwnProperty( "admin" ) ) {
+                                var signing_progress = hedgehog_factory.state[ state_id ].signing_progress;
+                                signing_progress[ pubkey ] = totalnum;
+                                var total_needed = num_of_users ** 2;
+                                $( `.signer_${pubkey} .progressBar` ).style.width = `${( totalnum / total_needed ) * 100}%`;
+                            }
                             connector_sigs_for_this_user_for_this_round.push( connector_sig );
                             all_ejection_sigs_for_this_round.push( sigs_for_this_user_for_this_round );
                             all_connector_sigs_for_this_round.push( connector_sigs_for_this_user_for_this_round );
@@ -4468,9 +4518,9 @@
                     round_fee_tx.vin[ 1 ].witness = [ sig ];
 
                     var eject_user_tx = ejection_txs[ round ][ user ];
-                    if ( i_am_admin ) var eject_user_sigs = sorted_user_ejection_sigs[ round ][ 0 ].reverse();
+                    if ( i_am_admin ) var eject_user_sigs = sorted_user_ejection_sigs[ round ][ user ].reverse();
                     else var eject_user_sigs = sorted_user_ejection_sigs[ round ].reverse();
-                    if ( i_am_admin ) var my_connector_sigs = sorted_connector_sigs[ round ][ 0 ].reverse();
+                    if ( i_am_admin ) var my_connector_sigs = sorted_connector_sigs[ round ][ user ].reverse();
                     else my_connector_sigs = sorted_connector_sigs[ round ].reverse();
                     var tapleaf = midstate_trees[ round ][ user ];
                     var [ _, cblock ] = tapscript.Tap.getPubKey( backup_pubkey, { target: tapleaf, tree: midstate_trees[ round ] });
@@ -4678,6 +4728,7 @@
             var showPage = page => {
                 $( '.schedule_signing_ceremony' ).classList.add( "hidden" );
                 $( '.ceremony_page' ).classList.add( "hidden" );
+                $( '.view_signers' ).classList.add( "hidden" );
                 $( '.ejection_buttons' ).classList.add( "hidden" );
                 $( '.wallet_page' ).classList.add( "hidden" );
                 $( `.${page}` ).classList.remove( "hidden" );
@@ -4767,14 +4818,15 @@
                         }
                         //if the admin sends the "invoice_paid" message, mark your invoice as paid and prepare to use the hash to create a hedgehog channel
                         //TODO: he should also give you a blind sig here; unblind it and change your pubkey, then you can prove you were in this group using the unblinded sig instead of your pubkey -- preventing the admin from linking you to your payment
-                        if ( msg.ctx.pubkey === params.routing_node && msg.tag === "preparation_phase" && JSON.parse( msg.dat )[ "type" ] === "invoice_paid" && !state.initial_state_hash ) {
+                        if ( msg.ctx.pubkey === params.routing_node && msg.tag === "preparation_phase" && JSON.parse( msg.dat )[ "type" ] === "invoice_paid" && !state.initial_state_hash && !state.signing_started ) {
                             state.initial_state_hash = JSON.parse( JSON.parse( msg.dat )[ "value" ] )[ "hash_for_hedgehog_channel" ];
                             state.admin_pubkeys_for_hedgehog_channels = JSON.parse( JSON.parse( msg.dat )[ "value" ] )[ "pubkeys_for_hedgehog_channels" ];
                             return;
                         }
                         //if the admin sends the "channels_active" message, show the user their wallet
-                        if ( msg.ctx.pubkey === params.routing_node && msg.tag === "channels_active" ) {
+                        if ( msg.ctx.pubkey === params.routing_node && msg.tag === "channels_active" && !state.signing_finished ) {
                             //TODO: have each user validate the sigs for their unilateral withdrawal
+                            state.signing_finished = true;
                             state.sorted_round_sigs = JSON.parse( msg.dat )[ "sorted_round_sigs" ];
                             state.sorted_user_ejection_sigs = JSON.parse( msg.dat )[ "ejection_sigs_for_this_user" ];
                             state.sorted_connector_sigs = JSON.parse( msg.dat )[ "connector_sigs_for_this_user" ];
@@ -4863,8 +4915,34 @@
                             hedgehog_factory.runPaymentSucceeded( msg, state_id );
                             return;
                         }
+                        //if the admin sends a "signing_progress" signal, update everyone's progress bars
+                        if ( msg.ctx.pubkey === params.routing_node && msg.tag === "signing_progress" && state.signing_started && !state.signing_finished ) {
+                            var json = JSON.parse( msg.dat );
+                            var total_needed = state.all_peers.length ** 2;
+                            Object.keys( json ).forEach( peer => {
+                                var num = json[ peer ];
+                                $( `.signer_${peer} .progressBar` ).style.width = `${( num / total_needed ) * 100}%`;
+                            });
+                            return;
+                        }
+                        //if the admin receives a signing_progress signal, update everyone about everyone's progress
+                        if ( params.hasOwnProperty( "admin" ) && all_peers.includes( msg.ctx.pubkey ) && msg.tag === "signing_progress" && state.signing_started && !state.signing_finished ) {
+                            if ( !Number( msg.dat ) ) return;
+                            var state_id = msg_id;
+                            var signing_progress = hedgehog_factory.state[ state_id ].signing_progress;
+                            signing_progress[ msg.ctx.pubkey ] = Number( msg.dat );
+                            var peers_to_message = JSON.parse( JSON.stringify( all_peers ) );
+                            peers_to_message.splice( peers_to_message.indexOf( state.pubkey ), 1 );
+                            node.relay( 'signing_progress', JSON.stringify( signing_progress ), peers_to_message, msg_id );
+                            var total_needed = all_peers.length ** 2;
+                            Object.keys( signing_progress ).forEach( peer => {
+                                var num = signing_progress[ peer ];
+                                $( `.signer_${peer} .progressBar` ).style.width = `${( num / total_needed ) * 100}%`;
+                            });
+                            return;
+                        }
                         //if the admin receives sigs, validate them and add them to the all_sigs_needed_by_admin object
-                        if ( params.hasOwnProperty( "admin" ) && all_peers.includes( msg.ctx.pubkey ) && msg.tag === "sigs" ) {
+                        if ( params.hasOwnProperty( "admin" ) && all_peers.includes( msg.ctx.pubkey ) && msg.tag === "sigs" && !state.signing_finished ) {
                             var state_id = msg_id;
                             var all_sigs_needed_by_admin = state.all_sigs_needed_by_admin;
                             var opening_info_for_hedgehog_channels = state.opening_info_for_hedgehog_channels;
