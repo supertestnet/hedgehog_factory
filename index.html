@@ -138,7 +138,7 @@
                     [ "OP_SIZE", 32, "OP_EQUALVERIFY", "OP_SHA256", hash, "OP_EQUALVERIFY", hedgehog.state[ chan_id ].alices_pubkey, "OP_CHECKSIGVERIFY", hedgehog.state[ chan_id ].bobs_pubkey, "OP_CHECKSIG" ],
                     [ hedgehog.state[ chan_id ].alices_pubkey, "OP_CHECKSIGVERIFY", hedgehog.state[ chan_id ].bobs_pubkey, "OP_CHECKSIG" ],
                 ]),
-                openChannel: async ( push_all_funds_to_counterparty, bobs_pubkey_and_hash = null, papa_swap_hash = null, utxos_for_papa_swap = null, deposit_amount = null, change_address = null, data = null, alices_privkey = null, txinfo = null ) => {
+                openChannel: async ( push_all_funds_to_counterparty, bobs_pubkey_and_hash = null, papa_swap_hash = null, utxos_for_papa_swap = null, deposit_amount = null, change_address = null, data = null, alices_privkey = null, txinfo = null, skip_alert ) => {
                     //note that in the version of hedgehog I use in hedgehog_factory, the roles of Alice
                     //and Bob are flipped -- Alice always acts as the one opening a channel to Bob so that
                     //she can push all the funds to his side, that way, when Bob funds the factory address,
@@ -169,7 +169,7 @@
 
                             //create the state object
                             var pubkey = data[ "recipient_pubkey" ];
-                            if ( !( pubkey in hedgehog.keypairs ) ) return alert( `Your counterparty tried to scam you! Do not interact with them any further` );
+                            if ( !skip_alert ) {if ( !( pubkey in hedgehog.keypairs ) ) return alert( `Your counterparty tried to scam you! Do not interact with them any further` );} else {if ( !( pubkey in hedgehog.keypairs ) ) return;}
                             var privkey = hedgehog.keypairs[ pubkey ][ "privkey" ];
                             var preimage = hedgehog.keypairs[ pubkey ][ "preimage" ];
                             var chan_id = data[ "chan_id" ];
@@ -196,7 +196,7 @@
                             var opening = true;
 
                             //validate the initial state using the regular "receive" function
-                            var opened = await hedgehog.receive( {amnt: amnt - 500 - 500, sig_1: data[ "sig_1" ], sig_3: data[ "sig_3" ], chan_id: data[ "chan_id" ], hash: data[ "hash" ]} );
+                            var opened = await hedgehog.receive( {amnt: amnt - 500 - 500, sig_1: data[ "sig_1" ], sig_3: data[ "sig_3" ], chan_id: data[ "chan_id" ], hash: data[ "hash" ]}, null, skip_alert );
                             if ( opened !== true ) return;
 
                             //update the state to reflect Bob's ability to withdraw 100%
@@ -561,12 +561,13 @@
 
                     return object;
                 },
-                receive: async ( data, skip_pending_check ) => {
+                receive: async ( data, skip_pending_check, skip_alert ) => {
                     var data_was_here_originally = data;
                     if ( !data ) data = JSON.parse( prompt( `Enter the data from your counterparty` ) );
                     var chan_id = data[ "chan_id" ];
 
-                    if ( !skip_pending_check && Object.keys( hedgehog.state[ chan_id ].pending_htlc ).length ) return alert( `you have a pending htlc, and you cannot receive money in this channel while you have one...clear it before proceeding` );
+                    if ( !skip_alert ) {if ( !skip_pending_check && Object.keys( hedgehog.state[ chan_id ].pending_htlc ).length ) return alert( `you have a pending htlc, and you cannot receive money in this channel while you have one...clear it before proceeding` );}
+                    else {if ( !skip_pending_check && Object.keys( hedgehog.state[ chan_id ].pending_htlc ).length ) return;}
 
                     //automatically find out if I am Alice or Bob using the chan_id
                     var am_alice = !!hedgehog.state[ chan_id ].alices_privkey;
@@ -577,9 +578,11 @@
                     //invalid, I can restore the old state
                     if ( !hedgehog.state[ chan_id ].i_was_last_to_send ) {
                         if ( am_alice ) {
-                            if ( amnt <= hedgehog.state[ chan_id ].balances[ 0 ] - hedgehog.state[ chan_id ].balances_before_most_recent_receive[ 0 ] ) return alert( `aborting because your counterparty tried to send you a negative amount -- it may not look like it, but, since you were the last person to receive, if they want to send you *more* money they ought to take whatever amount they previously sent you, add the new amount to that, and then add the *sum* to whatever amount you had before they most recently sent you money -- and *that's* what they should send you.` );                            
+                            if ( !skip_alert ) {if ( amnt <= hedgehog.state[ chan_id ].balances[ 0 ] - hedgehog.state[ chan_id ].balances_before_most_recent_receive[ 0 ] ) return alert( `aborting because your counterparty tried to send you a negative amount -- it may not look like it, but, since you were the last person to receive, if they want to send you *more* money they ought to take whatever amount they previously sent you, add the new amount to that, and then add the *sum* to whatever amount you had before they most recently sent you money -- and *that's* what they should send you.` );}
+                            else {if ( amnt <= hedgehog.state[ chan_id ].balances[ 0 ] - hedgehog.state[ chan_id ].balances_before_most_recent_receive[ 0 ] ) return;}                            
                         } else {
-                            if ( amnt <= hedgehog.state[ chan_id ].balances[ 1 ] - hedgehog.state[ chan_id ].balances_before_most_recent_receive[ 1 ] ) return alert( `aborting because your counterparty tried to send you a negative amount -- it may not look like it, but, since you were the last person to receive, if they want to send you *more* money they ought to take whatever amount they previously sent you, add the new amount to that, and then add the *sum* to whatever amount you had before they most recently sent you money -- and *that's* what they should send you.` );
+                            if ( !skip_alert ) {if ( amnt <= hedgehog.state[ chan_id ].balances[ 1 ] - hedgehog.state[ chan_id ].balances_before_most_recent_receive[ 1 ] ) return alert( `aborting because your counterparty tried to send you a negative amount -- it may not look like it, but, since you were the last person to receive, if they want to send you *more* money they ought to take whatever amount they previously sent you, add the new amount to that, and then add the *sum* to whatever amount you had before they most recently sent you money -- and *that's* what they should send you.` );}
+                            else {if ( amnt <= hedgehog.state[ chan_id ].balances[ 1 ] - hedgehog.state[ chan_id ].balances_before_most_recent_receive[ 1 ] ) return;}
                         }
                         var current_balances = JSON.parse( JSON.stringify( hedgehog.state[ chan_id ].balances ) );
                         hedgehog.state[ chan_id ].balances = hedgehog.state[ chan_id ].balances_before_most_recent_receive;
@@ -679,7 +682,8 @@
                             hedgehog.state[ chan_id ].alices_revocation_hashes.push( old_rev_hashes );
                             hedgehog.state[ chan_id ].bob_can_revoke.push( other_rev_info );
                         }
-                        return alert( `Your counterparty sent you invalid main-sig data so it will be ignored` );
+                        if ( !skip_alert ) {return alert( `Your counterparty sent you invalid main-sig data so it will be ignored` );}
+                        else return;
                     }
 
                     //Sign both of these transactions, but sign tx1 with a sig that
@@ -704,7 +708,8 @@
                                 hedgehog.state[ chan_id ].alices_revocation_hashes.push( old_rev_hashes );
                                 hedgehog.state[ chan_id ].bob_can_revoke.push( other_rev_info );
                             }
-                            return alert( `Your counterparty sent you invalid cond-sig data (no cond sig) so it will be ignored` );
+                            if ( !skip_alert ) {return alert( `Your counterparty sent you invalid cond-sig data (no cond sig) so it will be ignored` );}
+                            else return;
                         }
                         //TODO: ensure checking this sig doesn't crash the app
                         if ( am_alice ) var prev_address = hedgehog.state[ chan_id ].bob_can_revoke[ hedgehog.state[ chan_id ].bob_can_revoke.length - 1 ][ 0 ];
@@ -742,7 +747,8 @@
                                 hedgehog.state[ chan_id ].alices_revocation_hashes.push( old_rev_hashes );
                                 hedgehog.state[ chan_id ].bob_can_revoke.push( other_rev_info );
                             }
-                            return alert( `Your counterparty sent you invalid cond-sig data (invalid sig) so it will be ignored` );
+                            if ( !skip_alert ) {return alert( `Your counterparty sent you invalid cond-sig data (invalid sig) so it will be ignored` );}
+                            else return;
                         }
                         var conditional_cosignature = tapscript.Signer.taproot.sign( privkey, new_tx1, 0, { extension: new_tx1_target }).hex;
                     }
@@ -762,7 +768,8 @@
                                 hedgehog.state[ chan_id ].alices_revocation_hashes.push( old_rev_hashes );
                                 hedgehog.state[ chan_id ].bob_can_revoke.push( other_rev_info );
                             }
-                            return alert( `Your counterparty sent you invalid full-rev data (no pmg) so it will be ignored` );
+                            if ( !skip_alert ) {return alert( `Your counterparty sent you invalid full-rev data (no pmg) so it will be ignored` );}
+                            else return;
                         }
                         //TODO: ensure checking this sig doesn't crash the app
                         if ( am_alice ) var prev_address = hedgehog.state[ chan_id ].bob_can_revoke[ hedgehog.state[ chan_id ].bob_can_revoke.length - 2 ][ 0 ];
@@ -781,7 +788,8 @@
                                 hedgehog.state[ chan_id ].alices_revocation_hashes.push( old_rev_hashes );
                                 hedgehog.state[ chan_id ].bob_can_revoke.push( other_rev_info );
                             }
-                            return alert( `Your counterparty sent you invalid full-rev data (wrg pmg) so it will be ignored` );
+                            if ( !skip_alert ) {return alert( `Your counterparty sent you invalid full-rev data (wrg pmg) so it will be ignored` );}
+                            else return;
                         }
                         var prev_tx0 = tapscript.Tx.create({
                             vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chan_id ][ "multisig" ] )],
@@ -3762,6 +3770,16 @@
             </div>
         </div>
         <div class="view_signers hidden"></div>
+        <div class="validation_phase hidden">
+            <div class="progress">
+                <p style="font-weight: bold;">Validating signatures <span id="goal" style="font-size: .8em; font-weight: normal;"></span></p>
+                <div class="progressOutline" style="height: 2em; border: 1px solid grey; border-radius: 25px; overflow: hidden;">
+                    <div class="progressBar" style="height: 2em; background-color: #61eb34; width: 0%; transition: width 1s;">
+                    </div>
+                </div>
+                <div class="status"></div>
+            </div>
+        </div>
         <div class="wallet_page hidden">
             <div>Balance</div>
             <div><span class="balance">loading...</span></div>
@@ -3908,6 +3926,7 @@
                         loop_delay: 20,
                         amount_alice_expects_in_next_htlc: 0,
                         users_to_delete: [],
+                        validating: false,
                     }
                     var state = hedgehog_factory.state[ state_id ];
                     if ( params[ "privkey" ] ) state.privkey = params[ "privkey" ];
@@ -3943,7 +3962,6 @@
                         if ( state.signing_finished ) return;
                         await hedgehog_factory.waitSomeTime( 500 );
                         if ( !state.users_to_delete.length ) return loop3();
-                        console.log( 2230, "deleting these people:", state.users_to_delete );
                         var users_to_delete = JSON.parse( JSON.stringify( state.users_to_delete ) );
                         state.users_to_delete = [];
                         users_to_delete.forEach( user => {
@@ -3961,9 +3979,9 @@
                         hedgehog_factory.setSigningTimer( randomized_peers, state_id, utxos_for_protocol, sats_per_byte, change_address );
                         var node = state.node;
                         var msg_id = state_id;
-                        console.log( 2231, 'restarting with these people:', randomized_peers );
                         if ( randomized_peers.length < state.minimum ) return alert( `abort because too few people were honest` );
                         else node.relay( 'signing_phase', msg, randomized_peers, msg_id );
+                        showPage( 'view_signers' );
                         hedgehog_factory.startSigning( msg, state_id );
                         return;
                     }
@@ -3972,6 +3990,11 @@
                         state.sig_timers[ user ] = now;
                         state.signing_progress[ user ] = 0;
                         var loop = async () => {
+                            if ( state.validating ) {
+                                await hedgehog_factory.waitSomeTime( 1_000 );
+                                return loop();
+                            }
+                            if ( state.signing_finished ) return;
                             //cancel the loop if another function added users to users_to_delete
                             if ( state.users_to_delete.length ) return;
                             //cancel the loop if all sigs are acquired
@@ -3984,6 +4007,8 @@
                             user_state = state.signing_progress[ user ];
                             //wait 10 seconds
                             await hedgehog_factory.waitSomeTime( 10_000 );
+                            if ( state.validating ) return loop();
+                            if ( state.signing_finished ) return;
                             //again, cancel the loop if another function added users to users_to_delete
                             if ( state.users_to_delete.length ) return;
                             //again, cancel the loop if all sigs are acquired
@@ -4007,6 +4032,8 @@
                         if ( state.signing_finished ) return;
                         //cancel the loop if another function added users to users_to_delete
                         if ( state.users_to_delete.length ) return;
+                        //restart the loop if we're validating signatures
+                        if ( state.validating ) return loop2();
                         //if something changed, rerun startSigning
                         if ( JSON.stringify( users.sort() ) !== JSON.stringify( users_before_any_changes.sort() ) ) {
                             // users.splice( 0, 1 );
@@ -4022,6 +4049,7 @@
                             var msg_id = state_id;
                             if ( randomized_peers.length < state.minimum ) return alert( `abort because too few people were honest` );
                             else node.relay( 'signing_phase', msg, randomized_peers, msg_id );
+                            console.log( 1, 'restarting the signing process' );
                             hedgehog_factory.startSigning( msg, state_id );
                             return;
                         }
@@ -4046,6 +4074,7 @@
                     var amount_per_user_to_cover_p2a_costs = state.amount_per_user_to_cover_p2a_costs;
                     var backup_pubkey = state.backup_pubkey;
                     var msg_id = state_id;
+                    state.validating = false;
                     state.signing_started = true;
                     state.scripts = [];
                     state.script = [];
@@ -4281,6 +4310,7 @@
                         var tapleaf = tree[ 0 ];
                         var sighash = tapscript.Signer.taproot.hash( round, 0, { extension: tapleaf }).hex;
                         var sig = tapscript.Signer.taproot.sign( privkey, round, 0, { extension: tapleaf }).hex;
+                        if ( params.cheater ) sig = 'a'.repeat( 128 );
                         sigs.push( sig );
                         rounds.push( round );
                         round_sigs.push( sigs );
@@ -4426,6 +4456,14 @@
                     var round_sigs = [];
                     var user_ejection_sigs = [];
                     var connector_sigs = [];
+                    var total_validated = 0;
+                    var total_needed = 0;
+                    var msg_id = state.msg_id;
+                    var node = state.node;
+                    state.validating = true;
+                    var peers_to_message = JSON.parse( JSON.stringify( all_peers ) );
+                    peers_to_message.splice( 0, 1 );
+                    Object.keys( all_sigs_needed_by_admin ).forEach( user => total_needed = total_needed + all_sigs_needed_by_admin[ user ].length );
                     all_peers.forEach( peer => {
                         //the first array in round_sigs will contain n sigs by the first user,
                         //each of which creates one of the n midstates
@@ -4460,11 +4498,16 @@
                             }
                             var is_valid = await nobleSecp256k1.schnorr.verify( sig, sighash, all_peers[ j ] );
                             if ( !is_valid && !naughty_peers.includes( all_peers[ j ] ) ) naughty_peers.push( all_peers[ j ] );
+                            total_validated = total_validated + 1;
+                            var progress = Number( ( ( ( total_validated / total_needed ) ) * 100 ).toFixed( 2 ) );
+                            $( '.validation_phase .progressBar' ).style.width = `${progress}%`;
+                            if ( Math.floor( ( total_validated / total_needed ) * 100 ) % 5 === 0 ) {
+                                node.relay( 'validation_progress', JSON.stringify( [ total_validated, total_needed ] ), peers_to_message, msg_id );
+                            }
                         }
                     }
                     if ( naughty_peers.length ) {
                         state.users_to_delete = naughty_peers;
-                        console.log( 2229, state.users_to_delete );
                         return;
                     }
                     //the following loop makes it so that the first n sig_arrays in the
@@ -4525,6 +4568,12 @@
                                 }
                                 var is_valid_1 = await nobleSecp256k1.schnorr.verify( sig_1, midstate_sighash, all_peers[ k ] );
                                 if ( !is_valid_1 && !naughty_peers.includes( all_peers[ k ] ) ) naughty_peers.push( all_peers[ k ] );
+                                total_validated = total_validated + 1;
+                                var progress = Number( ( ( ( total_validated / total_needed ) ) * 100 ).toFixed( 2 ) );
+                                $( '.validation_phase .progressBar' ).style.width = `${progress}%`;
+                                if ( Math.floor( ( total_validated / total_needed ) * 100 ) % 5 === 0 ) {
+                                    node.relay( 'validation_progress', JSON.stringify( [ total_validated, total_needed ] ), peers_to_message, msg_id );
+                                }
                                 var sig_2 = connector_sigs_for_this_user[ k ];
                                 if ( sig_2.length !== 128 || !hedgehog.isValidHex( sig_2 ) && !naughty_peers.includes( all_peers[ j ] ) ) {
                                     naughty_peers.push( all_peers[ j ] );
@@ -4532,6 +4581,12 @@
                                 }
                                 var is_valid_2 = await nobleSecp256k1.schnorr.verify( sig_2, connector_sighash, all_peers[ k ] );
                                 if ( !is_valid_2 && !naughty_peers.includes( all_peers[ k ] ) ) naughty_peers.push( all_peers[ k ] );
+                                total_validated = total_validated + 1;
+                                var progress = Number( ( ( ( total_validated / total_needed ) ) * 100 ).toFixed( 2 ) );
+                                $( '.validation_phase .progressBar' ).style.width = `${progress}%`;
+                                if ( Math.floor( ( total_validated / total_needed ) * 100 ) % 5 === 0 ) {
+                                    node.relay( 'validation_progress', JSON.stringify( [ total_validated, total_needed ] ), peers_to_message, msg_id );
+                                }
                             }
                         }
                     }
@@ -4570,7 +4625,8 @@
                             channel_info.utxo_info[ "vout" ] = 1;
                             channel_info.utxo_info[ "amnt" ] = state.channel_size;
                             channel_info.sender_pubkey = peer;
-                            var channel_is_valid = await hedgehog.openChannel( null, null, null, null, null, null, channel_info );
+                            var skip_alert = true;
+                            var channel_is_valid = await hedgehog.openChannel( null, null, null, null, null, null, channel_info, null, null, skip_alert );
                             if ( !channel_is_valid && !naughty_peers.includes( peer ) ) naughty_peers.push( peer );
                         }
                     }
@@ -4579,7 +4635,8 @@
                         return;
                     }
                     var i; for ( i=0; i<all_peers.length; i++ ) $( '.ejection_buttons' ).innerHTML = $( '.ejection_buttons' ).innerHTML + `<button onclick="hedgehog_factory.ejectUser( ${i}, '${state_id}' );" class="eject_user_btn">Eject user ${i + 1}</button>`;
-                    showPage( 'ejection_buttons' );
+                    $$( '.signer .progressBar' ).forEach( item => item.style.width = `100%` );
+                    setTimeout( () => {showPage( 'ejection_buttons' );}, 2000 );
                     var sig_for_funding_tx = tapscript.Signer.taproot.sign( privkey, funding_tx, 0 );
                     funding_tx.vin[ 0 ].witness = [ sig_for_funding_tx ];
                     var txhex = tapscript.Tx.encode( funding_tx ).hex;
@@ -4587,8 +4644,6 @@
                     console.log( txhex );
                     state.signing_finished = true;
                     // Tell everyone their channels are active
-                    var msg_id = state.msg_id;
-                    var node = state.node;
                     //send a message to each user and include the
                     //signatures they need to unilaterally withdraw
                     var i; for ( i=0; i<all_peers.length; i++ ) {
@@ -4717,6 +4772,56 @@
                     console.log( txhex );
                     state.current_round = round + 1;
                     if ( i_am_admin ) $$( '.eject_user_btn' )[ user ].disabled = true;
+                },
+                showWallet: async ( msg, state_id ) => {
+                    //TODO: have each user validate the sigs for their unilateral withdrawal
+                    state.signing_finished = true;
+                    state.sorted_round_sigs = JSON.parse( msg.dat )[ "sorted_round_sigs" ];
+                    state.sorted_user_ejection_sigs = JSON.parse( msg.dat )[ "ejection_sigs_for_this_user" ];
+                    state.sorted_connector_sigs = JSON.parse( msg.dat )[ "connector_sigs_for_this_user" ];
+                    $$( '.signer .progressBar' ).forEach( item => item.style.width = `100%` );
+                    $( '.validation_phase .progressBar' ).style.width = `100%`;
+                    await hedgehog_factory.waitSomeTime( 2_000 );
+                    showPage( 'wallet_page' );
+                    var hedgehog_chan_ids = [];
+                    var msg_id = state_id;
+                    state.opening_info_for_hedgehog_channels[ state.pubkey ].forEach( item => hedgehog_chan_ids.push( item.chan_id ) );
+                    $( '.send_btn' ).setAttribute( "data-state_id", state_id );
+                    $( '.send_btn' ).onclick = async e => {
+                        var invoice = prompt( `enter an ln invoice` );
+                        var state_id = e.target.getAttribute( "data-state_id" );
+                        var htlc_hash = hedgehog.getInvoicePmthash( invoice );
+                        var amnt = hedgehog.getInvoiceAmount( invoice );
+                        if ( !amnt || !htlc_hash || amnt < 0 ) return alert( `error` );
+                        var info_for_bob = await hedgehog.aliceSendsHtlc( state_id, amnt, htlc_hash, invoice );
+                    }
+                    $( '.receive_btn' ).setAttribute( "data-state_id", state_id );
+                    $( '.receive_btn' ).onclick = async e => {
+                        var amnt = Number( prompt( `enter an amount you want to receive` ) );
+                        if ( !amnt ) return;
+                        // var chan_ids = JSON.parse( e.target.getAttribute( "data-hedgehog_chan_ids" ) );
+                        var state_id = e.target.getAttribute( "data-state_id" );
+                        var state = hedgehog_factory.state[ state_id ];
+                        var all_peers = state.all_peers;
+                        var recipient = all_peers[ 0 ];
+                        var msg = JSON.stringify({
+                            type: "initiate_ln_receive",
+                            msg: {
+                                amnt,
+                                state_id,
+                                // chan_ids,
+                            }
+                        });
+                        state.amount_alice_expects_in_next_htlc = amnt;
+                        node.send( 'initiate_ln_receive', msg, recipient, msg_id );
+                    }
+                    $( '.eject_btn' ).setAttribute( "data-state_id", state_id );
+                    $( '.eject_btn' ).onclick = e => {
+                        var state_id = e.target.getAttribute( "data-state_id" );
+                        var round = Number( prompt( `enter what round we are in` ) );
+                        hedgehog_factory.state[ state_id ].current_round = round;
+                        hedgehog_factory.ejectUser( hedgehog_factory.state[ state_id ].all_peers.indexOf( hedgehog_factory.state[ state_id ].pubkey ), state_id, false );
+                    }
                 },
                 runGetRevData: async ( msg, state_id ) => {
                     var json = JSON.parse( msg.dat );
@@ -4875,6 +4980,7 @@
                 $( '.schedule_signing_ceremony' ).classList.add( "hidden" );
                 $( '.ceremony_page' ).classList.add( "hidden" );
                 $( '.view_signers' ).classList.add( "hidden" );
+                $( '.validation_phase' ).classList.add( "hidden" );
                 $( '.ejection_buttons' ).classList.add( "hidden" );
                 $( '.wallet_page' ).classList.add( "hidden" );
                 $( `.${page}` ).classList.remove( "hidden" );
@@ -4956,9 +5062,16 @@
                             setTimeout( () => {delete hedgehog_factory.retrievables[ secret ];}, 5000 );
                             return;
                         }
+                        //if the admin sends the "validation_progress" message, increment the validation progress bar
+                        if ( msg.ctx.pubkey === params.routing_node && msg.tag === "validation_progress" ) {
+                            var progress = Number( ( ( ( JSON.parse( msg.dat )[ 0 ] / JSON.parse( msg.dat )[ 1 ] ) ) * 100 ).toFixed( 2 ) );
+                            $( '.validation_phase .progressBar' ).style.width = `${progress}%`;
+                            return;
+                        }
                         //if the admin sends the "signing_phase" message, pass it to the startSigning function
                         if ( msg.ctx.pubkey === params.routing_node && msg.tag === "signing_phase" && !state.signing_finished ) {
                             var state_id = msg_id;
+                            showPage( 'view_signers' );
                             hedgehog_factory.startSigning( msg.dat, state_id );
                             return;
                         }
@@ -4971,51 +5084,8 @@
                         }
                         //if the admin sends the "channels_active" message, show the user their wallet
                         if ( msg.ctx.pubkey === params.routing_node && msg.tag === "channels_active" && !state.signing_finished ) {
-                            //TODO: have each user validate the sigs for their unilateral withdrawal
-                            state.signing_finished = true;
-                            state.sorted_round_sigs = JSON.parse( msg.dat )[ "sorted_round_sigs" ];
-                            state.sorted_user_ejection_sigs = JSON.parse( msg.dat )[ "ejection_sigs_for_this_user" ];
-                            state.sorted_connector_sigs = JSON.parse( msg.dat )[ "connector_sigs_for_this_user" ];
-                            showPage( 'wallet_page' );
-                            var hedgehog_chan_ids = [];
                             var state_id = msg_id;
-                            state.opening_info_for_hedgehog_channels[ state.pubkey ].forEach( item => hedgehog_chan_ids.push( item.chan_id ) );
-                            $( '.send_btn' ).setAttribute( "data-state_id", state_id );
-                            $( '.send_btn' ).onclick = async e => {
-                                var invoice = prompt( `enter an ln invoice` );
-                                var state_id = e.target.getAttribute( "data-state_id" );
-                                var htlc_hash = hedgehog.getInvoicePmthash( invoice );
-                                var amnt = hedgehog.getInvoiceAmount( invoice );
-                                if ( !amnt || !htlc_hash || amnt < 0 ) return alert( `error` );
-                                var info_for_bob = await hedgehog.aliceSendsHtlc( state_id, amnt, htlc_hash, invoice );
-                            }
-                            $( '.receive_btn' ).setAttribute( "data-state_id", state_id );
-                            $( '.receive_btn' ).onclick = async e => {
-                                var amnt = Number( prompt( `enter an amount you want to receive` ) );
-                                if ( !amnt ) return;
-                                // var chan_ids = JSON.parse( e.target.getAttribute( "data-hedgehog_chan_ids" ) );
-                                var state_id = e.target.getAttribute( "data-state_id" );
-                                var state = hedgehog_factory.state[ state_id ];
-                                var all_peers = state.all_peers;
-                                var recipient = all_peers[ 0 ];
-                                var msg = JSON.stringify({
-                                    type: "initiate_ln_receive",
-                                    msg: {
-                                        amnt,
-                                        state_id,
-                                        // chan_ids,
-                                    }
-                                });
-                                state.amount_alice_expects_in_next_htlc = amnt;
-                                node.send( 'initiate_ln_receive', msg, recipient, msg_id );
-                            }
-                            $( '.eject_btn' ).setAttribute( "data-state_id", state_id );
-                            $( '.eject_btn' ).onclick = e => {
-                                var state_id = e.target.getAttribute( "data-state_id" );
-                                var round = Number( prompt( `enter what round we are in` ) );
-                                hedgehog_factory.state[ state_id ].current_round = round;
-                                hedgehog_factory.ejectUser( hedgehog_factory.state[ state_id ].all_peers.indexOf( hedgehog_factory.state[ state_id ].pubkey ), state_id, false );
-                            }
+                            hedgehog_factory.showWallet( msg, state_id );
                             return;
                         }
                         //if the admin sends the "get_revocation_data" message, prepare to receive an htlc and tell the user to show their invoice to whoever is paying them
@@ -5059,6 +5129,13 @@
                         if ( msg.ctx.pubkey === params.routing_node && msg.tag === "payment_succeeded" ) {
                             var state_id = msg_id;
                             hedgehog_factory.runPaymentSucceeded( msg, state_id );
+                            return;
+                        }
+                        //if the admin sends the "validating_sigs" signal, show the validatation_phase page
+                        if ( msg.ctx.pubkey === params.routing_node && msg.tag === "validating_sigs" ) {
+                            var state_id = msg_id;
+                            $$( '.signer .progressBar' ).forEach( item => item.style.width = `100%` );
+                            setTimeout( () => {showPage( 'validation_phase' );}, 2000 );
                             return;
                         }
                         //if the admin sends a "signing_progress" signal, update everyone's progress bars
@@ -5110,6 +5187,11 @@
                                 return;
                             });
                             if ( !all_peers_sent_sigs ) return;
+                            $$( '.signer .progressBar' ).forEach( item => item.style.width = `100%` );
+                            setTimeout( () => {showPage( 'validation_phase' )}, 2000 );
+                            var peers_to_message = JSON.parse( JSON.stringify( state.all_peers ) );
+                            peers_to_message.splice( peers_to_message.indexOf( state.pubkey ), 1 );
+                            node.relay( 'validating_sigs', '', peers_to_message, msg_id );
                             hedgehog_factory.validateAndBroadcast( state_id );
                             return;
                         }
