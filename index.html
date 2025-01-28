@@ -3885,10 +3885,15 @@
                         user_ejection_sigs: [],
                         connector_sigs: [],
                         withdrawal_txids: [],
-                        all_sigs_needed_by_admin: {},
                         sorted_round_sigs: [],
                         sorted_user_ejection_sigs: [],
                         sorted_connector_sigs: [],
+                        admin_pubkeys_for_hedgehog_channels: {},
+                        admin_privkey_for_own_hedgehog_channel: null,
+                        admin_preimage_for_own_hedgehog_channel: null,
+                        opening_info_for_hedgehog_channels: {},
+                        sig_timers: {},
+                        all_sigs_needed_by_admin: {},
                         current_round: 0,
                         amount_per_user_to_cover_p2a_costs: 240 * 2,
                         average_bytesize_of_each_users_input: 200,
@@ -3896,16 +3901,13 @@
                         msg_id: state_id,
                         node: null,
                         initial_state_hash: null,
-                        admin_pubkeys_for_hedgehog_channels: {},
-                        admin_privkey_for_own_hedgehog_channel: null,
-                        admin_preimage_for_own_hedgehog_channel: null,
-                        opening_info_for_hedgehog_channels: {},
                         signing_started: false,
                         signing_finished: false,
                         signing_progress: {},
                         nwc_string: null,
                         loop_delay: 20,
                         amount_alice_expects_in_next_htlc: 0,
+                        users_to_delete: [],
                     }
                     var state = hedgehog_factory.state[ state_id ];
                     if ( params[ "privkey" ] ) state.privkey = params[ "privkey" ];
@@ -3932,6 +3934,101 @@
                     await hedgehog_factory.waitSomeTime( 1000 );
                     hedgehog_factory.whosHereCleaner( state_id );
                 },
+                setSigningTimer: async ( users, state_id, utxos_for_protocol, sats_per_byte, change_address ) => {
+                    var state = hedgehog_factory.state[ state_id ];
+                    var now = Math.floor( Date.now() / 1000 );
+                    var users_before_any_changes = JSON.parse( JSON.stringify( users ) );
+                    var sigs_needed = ( ( ( Object.keys( users ).length + 1 ) ** 2 ) * 2 ) + ( Object.keys( users ).length + 1 );
+                    var loop3 = async () => {
+                        if ( state.signing_finished ) return;
+                        await hedgehog_factory.waitSomeTime( 500 );
+                        if ( !state.users_to_delete.length ) return loop3();
+                        console.log( 2230, "deleting these people:", state.users_to_delete );
+                        var users_to_delete = JSON.parse( JSON.stringify( state.users_to_delete ) );
+                        state.users_to_delete = [];
+                        users_to_delete.forEach( user => {
+                            delete state.who_should_pay[ user ];
+                            delete state.all_sigs_needed_by_admin[ user ];
+                            users.splice( users.indexOf( user ), 1 );
+                        });
+                        var randomized_peers = hedgehog_factory.shuffle( users );
+                        var msg = JSON.stringify({
+                            type: "official_peers_and_utxos_list",
+                            value: { randomized_peers, utxos_for_protocol, sats_per_byte, change_address },
+                        });
+                        users.push( state.pubkey );
+                        users.forEach( user => state.all_sigs_needed_by_admin[ user ] = [] );
+                        hedgehog_factory.setSigningTimer( randomized_peers, state_id, utxos_for_protocol, sats_per_byte, change_address );
+                        var node = state.node;
+                        var msg_id = state_id;
+                        console.log( 2231, 'restarting with these people:', randomized_peers );
+                        if ( randomized_peers.length < state.minimum ) return alert( `abort because too few people were honest` );
+                        else node.relay( 'signing_phase', msg, randomized_peers, msg_id );
+                        hedgehog_factory.startSigning( msg, state_id );
+                        return;
+                    }
+                    loop3();
+                    users.forEach( async user => {
+                        state.sig_timers[ user ] = now;
+                        state.signing_progress[ user ] = 0;
+                        var loop = async () => {
+                            //cancel the loop if another function added users to users_to_delete
+                            if ( state.users_to_delete.length ) return;
+                            //cancel the loop if all sigs are acquired
+                            if ( !state.all_sigs_needed_by_admin.hasOwnProperty( user ) ) state.all_sigs_needed_by_admin[ user ] = [];
+                            if ( state.all_sigs_needed_by_admin[ user ].length === sigs_needed ) return;
+                            //cancel the loop if this user is no longer part of the group
+                            var users_in_group = Object.keys( state.who_should_pay );
+                            if ( !users_in_group.includes( user ) ) return;
+                            //get the current states
+                            user_state = state.signing_progress[ user ];
+                            //wait 10 seconds
+                            await hedgehog_factory.waitSomeTime( 10_000 );
+                            //again, cancel the loop if another function added users to users_to_delete
+                            if ( state.users_to_delete.length ) return;
+                            //again, cancel the loop if all sigs are acquired
+                            if ( state.all_sigs_needed_by_admin[ user ].length === sigs_needed ) return;
+                            //check if the user's state changed
+                            var state_changed = !( user_state === state.signing_progress[ user ] );
+                            //if not, kick them out, otherwise, loop
+                            if ( !state_changed ) {
+                                delete state.who_should_pay[ user ];
+                                delete state.all_sigs_needed_by_admin[ user ];
+                                users.splice( users.indexOf( user ), 1 );
+                                return;
+                            } else {
+                                return loop();
+                            }
+                        }
+                        loop();
+                    });
+                    var loop2 = async () => {
+                        await hedgehog_factory.waitSomeTime( 10_000 );
+                        if ( state.signing_finished ) return;
+                        //cancel the loop if another function added users to users_to_delete
+                        if ( state.users_to_delete.length ) return;
+                        //if something changed, rerun startSigning
+                        if ( JSON.stringify( users.sort() ) !== JSON.stringify( users_before_any_changes.sort() ) ) {
+                            // users.splice( 0, 1 );
+                            var randomized_peers = hedgehog_factory.shuffle( users );
+                            var msg = JSON.stringify({
+                                type: "official_peers_and_utxos_list",
+                                value: { randomized_peers, utxos_for_protocol, sats_per_byte, change_address },
+                            });
+                            users.push( state.pubkey );
+                            users.forEach( user => state.all_sigs_needed_by_admin[ user ] = [] );
+                            hedgehog_factory.setSigningTimer( randomized_peers, state_id, utxos_for_protocol, sats_per_byte, change_address );
+                            var node = state.node;
+                            var msg_id = state_id;
+                            if ( randomized_peers.length < state.minimum ) return alert( `abort because too few people were honest` );
+                            else node.relay( 'signing_phase', msg, randomized_peers, msg_id );
+                            hedgehog_factory.startSigning( msg, state_id );
+                            return;
+                        }
+                        return loop2();
+                    }
+                    await loop2();
+                },
                 startSigning: async ( official_peers_and_utxos_list, state_id ) => {
                     var peers_and_utxos = JSON.parse( official_peers_and_utxos_list );
                     var peers = peers_and_utxos.value.randomized_peers;
@@ -3950,6 +4047,30 @@
                     var backup_pubkey = state.backup_pubkey;
                     var msg_id = state_id;
                     state.signing_started = true;
+                    state.scripts = [];
+                    state.script = [];
+                    state.tree = [];
+                    state.multisig = null;
+                    state.funding_tx = null;
+                    state.rounds = [];
+                    state.ejection_txs = [];
+                    state.round_sigs = [];
+                    state.midstate_scripts = [];
+                    state.midstate_trees = [];
+                    state.midstate_addresses = [];
+                    state.connector_utxos = [];
+                    state.user_ejection_sigs = [];
+                    state.connector_sigs = [];
+                    state.withdrawal_txids = [];
+                    state.sorted_round_sigs = [];
+                    state.sorted_user_ejection_sigs = [];
+                    state.sorted_connector_sigs = [];
+                    if ( Object.keys( state.opening_info_for_hedgehog_channels ).length ) {
+                        var chan_ids = [];
+                        Object.keys( state.opening_info_for_hedgehog_channels ).forEach( opener => chan_ids.push( state.opening_info_for_hedgehog_channels[ opener ].chan_id ) );
+                        state.opening_info_for_hedgehog_channels = {}
+                        chan_ids.forEach( chan_id => delete hedgehog.state[ chan_id ] );
+                    }
 
                     //if you are the admin, clear your hedgehog.keypairs object and insert the keypairs
                     //belonging to the people who paid and have not been kicked out
@@ -3968,6 +4089,7 @@
                                 privkey: privkey_for_hedgehog,
                                 preimage: preimage_for_hedgehog,
                             }
+                            if ( !state.all_sigs_needed_by_admin.hasOwnProperty( peer ) ) state.all_sigs_needed_by_admin[ peer ] = [];
                         });
                     }
 
@@ -3976,6 +4098,7 @@
                     state.all_peers = JSON.parse( JSON.stringify( peers ) );
                     var all_peers = state.all_peers;
 
+                    $( '.view_signers' ).innerHTML = ``;
                     peers.forEach( peer => {
                         var signer = `
                             <div class="signer signer_${peer}">
@@ -4235,7 +4358,7 @@
                             if ( params.hasOwnProperty( "admin" ) ) {
                                 var signing_progress = hedgehog_factory.state[ state_id ].signing_progress;
                                 signing_progress[ pubkey ] = totalnum;
-                                var total_needed = num_of_users ** 2;
+                                var total_needed = ( num_of_users ** 2 ) * 2;
                                 $( `.signer_${pubkey} .progressBar` ).style.width = `${( totalnum / total_needed ) * 100}%`;
                             }
                             connector_sigs_for_this_user_for_this_round.push( connector_sig );
@@ -4279,6 +4402,7 @@
                     }
                     // Send the data to the admin or, if you are the admin, save your own data
                     var all_sigs_needed_by_admin = state.all_sigs_needed_by_admin;
+                    console.log( 'sending my sigs!' );
                     if ( peers[ 0 ] !== pubkey ) node.send( 'sigs', JSON.stringify({ sigs_to_send, opening_info_for_hedgehog_channels: opening_info_for_hedgehog_channels[ pubkey ] }), peers[ 0 ], msg_id );
                     else all_sigs_needed_by_admin[ pubkey ] = sigs_to_send;
                     // Then have the admin broadcast the funding transaction and the protocol is done
@@ -4310,9 +4434,9 @@
                         connector_sigs.push( [ ...unsorted_sigs[ peer ].splice( 0, all_peers.length ** 2 ) ] );
                     });
                     // console.log( 0 );
-                    // console.log( round_sigs );
-                    // console.log( user_ejection_sigs );
-                    // console.log( connector_sigs );
+                    // console.log( 13, round_sigs );
+                    // console.log( 14, user_ejection_sigs );
+                    // console.log( 15, connector_sigs );
                     var i; for ( i=0; i<round_sigs.length; i++ ) {
                         var sorted = [];
                         var j; for ( j=0; j<round_sigs.length; j++ ) sorted.push( round_sigs[ j ][ i ] );
@@ -4330,11 +4454,19 @@
                             //and we skip checking our own
                             if ( !j ) continue;
                             var sig = sig_array[ j ];
+                            if ( sig.length !== 128 || !hedgehog.isValidHex( sig ) && !naughty_peers.includes( all_peers[ j ] ) ) {
+                                naughty_peers.push( all_peers[ j ] );
+                                break;
+                            }
                             var is_valid = await nobleSecp256k1.schnorr.verify( sig, sighash, all_peers[ j ] );
                             if ( !is_valid && !naughty_peers.includes( all_peers[ j ] ) ) naughty_peers.push( all_peers[ j ] );
                         }
                     }
-                    console.log( 0, `naughty_peers:`, naughty_peers.length );
+                    if ( naughty_peers.length ) {
+                        state.users_to_delete = naughty_peers;
+                        console.log( 2229, state.users_to_delete );
+                        return;
+                    }
                     //the following loop makes it so that the first n sig_arrays in the
                     //sorted_user_ejection_sigs array and in the sorted_connector_sigs array
                     //eject all users from the first round, in the order given by all_peers
@@ -4387,15 +4519,26 @@
                                 //and we skip checking our own
                                 if ( !k ) continue;
                                 var sig_1 = ejection_sigs_for_this_user[ k ];
+                                if ( sig_1.length !== 128 || !hedgehog.isValidHex( sig_1 ) && !naughty_peers.includes( all_peers[ j ] ) ) {
+                                    naughty_peers.push( all_peers[ j ] );
+                                    break;
+                                }
                                 var is_valid_1 = await nobleSecp256k1.schnorr.verify( sig_1, midstate_sighash, all_peers[ k ] );
                                 if ( !is_valid_1 && !naughty_peers.includes( all_peers[ k ] ) ) naughty_peers.push( all_peers[ k ] );
                                 var sig_2 = connector_sigs_for_this_user[ k ];
+                                if ( sig_2.length !== 128 || !hedgehog.isValidHex( sig_2 ) && !naughty_peers.includes( all_peers[ j ] ) ) {
+                                    naughty_peers.push( all_peers[ j ] );
+                                    break;
+                                }
                                 var is_valid_2 = await nobleSecp256k1.schnorr.verify( sig_2, connector_sighash, all_peers[ k ] );
                                 if ( !is_valid_2 && !naughty_peers.includes( all_peers[ k ] ) ) naughty_peers.push( all_peers[ k ] );
                             }
                         }
                     }
-                    // console.log( 1, `naughty_peers:`, naughty_peers.length );
+                    if ( naughty_peers.length ) {
+                        state.users_to_delete = naughty_peers;
+                        return;
+                    }
                     // console.log( 1 );
                     // console.log( sorted_round_sigs );
                     // console.log( sorted_user_ejection_sigs );
@@ -4431,8 +4574,10 @@
                             if ( !channel_is_valid && !naughty_peers.includes( peer ) ) naughty_peers.push( peer );
                         }
                     }
-                    //TODO: eject any naughty peers and restart from startSigning (note that it is important you restart from there because that function resets hedgehog.keypairs, ensuring no one can trick you into cosigning a channel state for a keypair that is not in the approved group, and thus stealing from you)
-                    // console.log( 2, `naughty_peers:`, naughty_peers.length );
+                    if ( naughty_peers.length ) {
+                        state.users_to_delete = naughty_peers;
+                        return;
+                    }
                     var i; for ( i=0; i<all_peers.length; i++ ) $( '.ejection_buttons' ).innerHTML = $( '.ejection_buttons' ).innerHTML + `<button onclick="hedgehog_factory.ejectUser( ${i}, '${state_id}' );" class="eject_user_btn">Eject user ${i + 1}</button>`;
                     showPage( 'ejection_buttons' );
                     var sig_for_funding_tx = tapscript.Signer.taproot.sign( privkey, funding_tx, 0 );
@@ -4440,6 +4585,7 @@
                     var txhex = tapscript.Tx.encode( funding_tx ).hex;
                     console.log( 'broadcast this:' );
                     console.log( txhex );
+                    state.signing_finished = true;
                     // Tell everyone their channels are active
                     var msg_id = state.msg_id;
                     var node = state.node;
@@ -4811,7 +4957,7 @@
                             return;
                         }
                         //if the admin sends the "signing_phase" message, pass it to the startSigning function
-                        if ( msg.ctx.pubkey === params.routing_node && msg.tag === "signing_phase" && !state.signing_started ) {
+                        if ( msg.ctx.pubkey === params.routing_node && msg.tag === "signing_phase" && !state.signing_finished ) {
                             var state_id = msg_id;
                             hedgehog_factory.startSigning( msg.dat, state_id );
                             return;
@@ -4918,7 +5064,7 @@
                         //if the admin sends a "signing_progress" signal, update everyone's progress bars
                         if ( msg.ctx.pubkey === params.routing_node && msg.tag === "signing_progress" && state.signing_started && !state.signing_finished ) {
                             var json = JSON.parse( msg.dat );
-                            var total_needed = state.all_peers.length ** 2;
+                            var total_needed = ( state.all_peers.length ** 2 ) * 2;
                             Object.keys( json ).forEach( peer => {
                                 var num = json[ peer ];
                                 $( `.signer_${peer} .progressBar` ).style.width = `${( num / total_needed ) * 100}%`;
@@ -4926,15 +5072,15 @@
                             return;
                         }
                         //if the admin receives a signing_progress signal, update everyone about everyone's progress
-                        if ( params.hasOwnProperty( "admin" ) && all_peers.includes( msg.ctx.pubkey ) && msg.tag === "signing_progress" && state.signing_started && !state.signing_finished ) {
+                        if ( params.hasOwnProperty( "admin" ) && state.all_peers.includes( msg.ctx.pubkey ) && msg.tag === "signing_progress" && state.signing_started && !state.signing_finished ) {
                             if ( !Number( msg.dat ) ) return;
                             var state_id = msg_id;
                             var signing_progress = hedgehog_factory.state[ state_id ].signing_progress;
                             signing_progress[ msg.ctx.pubkey ] = Number( msg.dat );
-                            var peers_to_message = JSON.parse( JSON.stringify( all_peers ) );
+                            var peers_to_message = JSON.parse( JSON.stringify( state.all_peers ) );
                             peers_to_message.splice( peers_to_message.indexOf( state.pubkey ), 1 );
                             node.relay( 'signing_progress', JSON.stringify( signing_progress ), peers_to_message, msg_id );
-                            var total_needed = all_peers.length ** 2;
+                            var total_needed = ( state.all_peers.length ** 2 ) * 2;
                             Object.keys( signing_progress ).forEach( peer => {
                                 var num = signing_progress[ peer ];
                                 $( `.signer_${peer} .progressBar` ).style.width = `${( num / total_needed ) * 100}%`;
@@ -4942,32 +5088,45 @@
                             return;
                         }
                         //if the admin receives sigs, validate them and add them to the all_sigs_needed_by_admin object
-                        if ( params.hasOwnProperty( "admin" ) && all_peers.includes( msg.ctx.pubkey ) && msg.tag === "sigs" && !state.signing_finished ) {
+                        if ( params.hasOwnProperty( "admin" ) && state.all_peers.includes( msg.ctx.pubkey ) && msg.tag === "sigs" && !state.signing_finished ) {
                             var state_id = msg_id;
                             var all_sigs_needed_by_admin = state.all_sigs_needed_by_admin;
                             var opening_info_for_hedgehog_channels = state.opening_info_for_hedgehog_channels;
                             //if you already have all the sigs you need, ignore the message
-                            if ( Object.keys( all_sigs_needed_by_admin ).length === all_peers.length ) return;
+                            var all_peers_sent_sigs = true;
+                            var all_peers = state.all_peers;
+                            all_peers.forEach( peer => {
+                                if ( !all_sigs_needed_by_admin[ peer ].length ) all_peers_sent_sigs = false;
+                                return;
+                            });
+                            if ( all_peers_sent_sigs ) return;
                             all_sigs_needed_by_admin[ msg.ctx.pubkey ] = JSON.parse( msg.dat )[ "sigs_to_send" ];
                             opening_info_for_hedgehog_channels[ msg.ctx.pubkey ] = JSON.parse( msg.dat )[ "opening_info_for_hedgehog_channels" ];
                             //if you now have all the sigs you need, validate them and broadcast the funding tx
-                            if ( Object.keys( all_sigs_needed_by_admin ).length === all_peers.length ) hedgehog_factory.validateAndBroadcast( state_id );
+                            var all_peers_sent_sigs = true;
+                            var all_peers = state.all_peers;
+                            all_peers.forEach( peer => {
+                                if ( !all_sigs_needed_by_admin[ peer ].length ) all_peers_sent_sigs = false;
+                                return;
+                            });
+                            if ( !all_peers_sent_sigs ) return;
+                            hedgehog_factory.validateAndBroadcast( state_id );
                             return;
                         }
                         //if the admin receives the "initiate_ln_receive" signal, run hedgehog_factory.runInitiateLNReceive()
-                        if ( params.hasOwnProperty( "admin" ) && all_peers.includes( msg.ctx.pubkey ) && msg.tag === "initiate_ln_receive" ) {
+                        if ( params.hasOwnProperty( "admin" ) && state.all_peers.includes( msg.ctx.pubkey ) && msg.tag === "initiate_ln_receive" ) {
                             var state_id = msg_id;
                             hedgehog_factory.runInitiateLNReceive( msg, state_id );
                             return;
                         }
                         //if the admin receives the "initiate_ln_payment" signal, run hedgehog_factory.runInitiateLNPayment()
-                        if ( params.hasOwnProperty( "admin" ) && all_peers.includes( msg.ctx.pubkey ) && msg.tag === "initiate_ln_payment" ) {
+                        if ( params.hasOwnProperty( "admin" ) && state.all_peers.includes( msg.ctx.pubkey ) && msg.tag === "initiate_ln_payment" ) {
                             var state_id = msg_id;
                             hedgehog_factory.runInitiateLNPayment( msg, state_id );
                             return;
                         }
                         //if the admin receives the "resolve_htlc" signal, run hedgehog_factory.runResolveHTLC()
-                        if ( params.hasOwnProperty( "admin" ) && all_peers.includes( msg.ctx.pubkey ) && msg.tag === "resolve_htlc" ) {
+                        if ( params.hasOwnProperty( "admin" ) && state.all_peers.includes( msg.ctx.pubkey ) && msg.tag === "resolve_htlc" ) {
                             var state_id = msg_id;
                             hedgehog_factory.runResolveHTLC( msg, state_id );
                             return;
@@ -5002,6 +5161,7 @@
             $( '.start_signing_ceremony' ).onclick = async () => {
                 var conf = confirm( `Are you sure you want to start?` );
                 if ( !conf ) return;
+                $( '.start_signing_ceremony' ).disabled = true;
                 console.log( 'starting ceremony...' );
                 var state_id = params[ "ceremony" ];
                 var msg_id = state_id;
@@ -5122,6 +5282,8 @@
                 //abort if, after 60 seconds, not enough people paid to meet your minimum
                 //TODO: fix the wait time -- I should wait a maximum of 60 seconds for everyone to send back their data
                 var peers_to_message = JSON.parse( JSON.stringify( all_peers ) );
+                //ensure the all_peers object includes yourself
+                state.all_peers.push( pubkey );
                 var num_who_paid = Object.keys( who_should_pay ).length;
                 Object.keys( who_should_pay ).forEach( participant => {
                     if ( who_should_pay[ participant ][ 0 ] !== "paid" ) num_who_paid = num_who_paid - 1;
@@ -5141,7 +5303,6 @@
                 console.log( 'enough paid' );
                 // Give everyone the list of participating pubkeys, sorted in random order (you got their pubkeys when they announced their presence)
                 var randomized_peers = hedgehog_factory.shuffle( JSON.parse( JSON.stringify( peers ) ) );
-                all_peers.push( pubkey );
                 // Give everyone the utxo data of a sufficient number of inputs to make your 1-or-2 output transaction (utxo data consists of a txid, a vout, an amount, and an address)
                 var required_sum = ( channel_size * ( randomized_peers.length + 1 ) ) + ( amount_per_user_to_cover_p2a_costs * ( randomized_peers.length + 1 ) ) + 830;
                 var admin_addy = tapscript.Address.fromScriptPubKey( [ 1, pubkey ], address_type );
@@ -5162,6 +5323,7 @@
                     value: { randomized_peers, utxos_for_protocol, sats_per_byte, change_address },
                 });
                 node.relay( 'signing_phase', msg, peers_to_message, msg_id );
+                hedgehog_factory.setSigningTimer( randomized_peers, state_id, utxos_for_protocol, sats_per_byte, change_address );
                 hedgehog_factory.startSigning( msg, state_id );
             }
         </script>
