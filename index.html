@@ -4219,6 +4219,24 @@
             .signer img, .ejectable_user img {
                 width: 100%;
             }
+            .pnl_listing {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: center;
+                border: 1px solid black;
+                border-radius: 1rem;
+                padding: .5rem;
+                margin-bottom: 1rem;
+            }
+            .pnl_item {
+                border: 1px solid black;
+                border-radius: 1rem;
+                padding: .5rem;
+                margin: .5rem;
+                word-wrap: break-word;
+                width: 100%;
+                max-width: 8rem;
+            }
             @media screen and (max-width: 600px) {
             }
         </style>
@@ -5378,13 +5396,100 @@
                                 <p>${peer.substring( 0, 4 ) + "..." + peer.substring( peer.length - 4 )}</p>
                                 <p>Balance: <span class="user_balance">0</span> sats</p>
                                 <p>PnL: <span class="pnl">0</span> sats</p>
-                                <p><button>View profits</button></p>
-                                <p><button>View losses</button></p>
+                                <p><button class="view_profits" data-user="${peer}" data-state_id="${state_id}">View profits</button></p>
+                                <p><button class="view_losses" data-user="${peer}" data-state_id="${state_id}">View losses</button></p>
                                 <p><button onclick="hedgehog_factory.ejectUser( ${i}, '${state_id}' );" class="eject_user_btn">Eject user ${i + 1}</button></p>
                             </div>
                         `;
                         $( '.ejection_buttons' ).append( div.firstElementChild );
                     }
+                    $$( '.view_profits' ).forEach( ( item, index ) => {
+                        if ( !index ) {
+                            item.disabled = true;
+                            return;
+                        }
+                        item.onclick = e => {
+                            var state_id = e.target.getAttribute( "data-state_id" );
+                            var user = e.target.getAttribute( "data-user" );
+                            var profits = hedgehog_factory.state[ state_id ].admin_info_on_each_user[ user ].profits;
+                            var div = document.createElement( "div" );
+                            var html = ``;
+                            profits.forEach( item => {
+                                html = html + `
+                                    <div class="pnl_listing">
+                                        <div class="pnl_item">
+                                            <p style="font-weight: bold;">Label</p>
+                                            <p>${item[ "label" ]}</p>
+                                        </div>
+                                        <div class="pnl_item">
+                                            <p style="font-weight: bold;">Txhash</p>
+                                            <p>${item[ "txhash" ] || '[None]'}</p>
+                                        </div>
+                                        <div class="pnl_item">
+                                            <p style="font-weight: bold;">Kind</p>
+                                            <p>${item[ "kind" ]}</p>
+                                        </div>
+                                        <div class="pnl_item">
+                                            <p style="font-weight: bold;">Gain</p>
+                                            <p>${item[ "gain" ]} sats</p>
+                                        </div>
+                                        <div class="pnl_item">
+                                            <p style="font-weight: bold;">Description</p>
+                                            <p>${item[ "desc" ] || '[None]'}</p>
+                                        </div>
+                                        <div class="pnl_item">
+                                            <p style="font-weight: bold;">Time</p>
+                                            <p>${item[ "time" ]}</p>
+                                        </div>
+                                    </div>
+                                `
+                            });
+                            showModal( html );
+                        }
+                    });
+                    $$( '.view_losses' ).forEach( ( item, index ) => {
+                        if ( !index ) {
+                            item.disabled = true;
+                            return;
+                        }
+                        item.onclick = e => {
+                            var state_id = e.target.getAttribute( "data-state_id" );
+                            var user = e.target.getAttribute( "data-user" );
+                            var losses = hedgehog_factory.state[ state_id ].admin_info_on_each_user[ user ].losses;
+                            var html = ``;
+                            losses.forEach( item => {
+                                html = html + `
+                                    <div class="pnl_listing">
+                                        <div class="pnl_item">
+                                            <p style="font-weight: bold;">Label</p>
+                                            <p>${item[ "label" ]}</p>
+                                        </div>
+                                        <div class="pnl_item">
+                                            <p style="font-weight: bold;">Txhash</p>
+                                            <p>${item[ "txhash" ] || '[None]'}</p>
+                                        </div>
+                                        <div class="pnl_item">
+                                            <p style="font-weight: bold;">Kind</p>
+                                            <p>${item[ "kind" ]}</p>
+                                        </div>
+                                        <div class="pnl_item">
+                                            <p style="font-weight: bold;">Loss</p>
+                                            <p>${item[ "loss" ]} sats</p>
+                                        </div>
+                                        <div class="pnl_item">
+                                            <p style="font-weight: bold;">Description</p>
+                                            <p>${item[ "desc" ] || '[None]'}</p>
+                                        </div>
+                                        <div class="pnl_item">
+                                            <p style="font-weight: bold;">Time</p>
+                                            <p>${item[ "time" ]}</p>
+                                        </div>
+                                    </div>
+                                `
+                            });
+                            showModal( html );
+                        }
+                    });
                     $$( '.signer .progressBar' ).forEach( item => item.style.width = `100%` );
                     $( '.validation_phase .progressBar' ).style.width = `100%`;
                     setTimeout( () => {showPage( 'ejection_buttons' );}, 2000 );
@@ -5401,26 +5506,26 @@
                     funding_tx.vout.forEach( vout => funding_outputs_sum = funding_outputs_sum + vout.value );
                     peers_to_message.forEach( user => {
                         state.admin_info_on_each_user[ user ] = {
-                            losses: {},
-                            profits: {
-                                "funding": {
-                                    txhash: null,
-                                    kind: "lightning",
-                                    gain: state.channel_cost,
-                                    desc: "",
-                                    date: Math.floor( Date.now() / 1000 ),
-                                }
-                            },
+                            losses: [],
+                            profits: [{
+                                label: "funding",
+                                txhash: null,
+                                kind: "lightning",
+                                gain: state.channel_cost,
+                                desc: "",
+                                time: Math.floor( Date.now() / 1000 ),
+                            }],
                             balance: 0,
                             last_active: Math.floor( Date.now() / 1000 ),
                         }
-                        state.admin_info_on_each_user[ user ][ "losses" ][ "funding" ] = {
+                        state.admin_info_on_each_user[ user ][ "losses" ].push({
+                            label: "funding",
                             txhash: funding_txid,
                             kind: "base layer",
                             loss: Math.ceil( ( funding_inputs_sum - funding_outputs_sum ) / peers_to_message.length ),
-                            desc: `this funding transaction costed ${funding_inputs_sum - funding_outputs_sum} sats total, and was divided among ${peers_to_message.length} users`,
-                            date: Math.floor( Date.now() / 1000 ),
-                        };
+                            desc: `this funding transaction costed ${funding_inputs_sum - funding_outputs_sum} sats total and was divided among ${peers_to_message.length} users`,
+                            time: Math.floor( Date.now() / 1000 ),
+                        });
                     });
                     // Tell everyone their channels are active
                     //send a message to each user and include the
@@ -5443,6 +5548,9 @@
                     }
                 },
                 ejectUser: ( user, state_id, i_am_admin = true ) => {
+                    if ( i_am_admin ) var conf = confirm( `Are you sure you want to eject this user from this channel factory?` );
+                    else var conf = confirm( `Are you sure you want to eject yourself from this channel factory?` );
+                    if ( !conf ) return;
                     var state = hedgehog_factory.state[ state_id ];
                     var round = state.current_round;
                     var tree = state.tree;
@@ -6086,10 +6194,11 @@
                             Object.keys( admin_info ).forEach( user => {
                                 $( `.user_${user} .user_balance` ).innerText = admin_info[ user ].balance;
                                 var sum_of_profits = 0;
-                                Object.keys( admin_info[ user ].profits ).forEach( item => sum_of_profits = sum_of_profits + admin_info[ user ].profits[ item ].gain );
+                                admin_info[ user ].profits.forEach( item => sum_of_profits = sum_of_profits + item.gain );
                                 var sum_of_losses = 0;
-                                Object.keys( admin_info[ user ].losses ).forEach( item => sum_of_losses = sum_of_losses + admin_info[ user ].losses[ item ].loss );
-                                var PnL = sum_of_profits - sum_of_losses;
+                                admin_info[ user ].losses.forEach( item => sum_of_losses = sum_of_losses + item.loss );
+                                var sign_for_pnl = sum_of_profits - sum_of_losses > 0 ? "+" : "-";
+                                var PnL = `${sign_for_pnl}${sum_of_profits - sum_of_losses}`;
                                 $( `.user_${user} .pnl` ).innerText = PnL;
                             });
                         }
