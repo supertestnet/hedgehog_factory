@@ -5523,16 +5523,17 @@
                     $( '.send' ).setAttribute( "data-state_id", state_id );
                     $( '.send' ).onclick = async e => {
                         var invoice = prompt( `enter an ln invoice` );
-                        var state_id = e.target.getAttribute( "data-state_id" );
                         var htlc_hash = hedgehog.getInvoicePmthash( invoice );
                         var amnt = hedgehog.getInvoiceAmount( invoice );
-                        if ( !amnt || !htlc_hash || amnt < 0 ) return alert( `error` );
+                        if ( !amnt || !htlc_hash || amnt < 1 ) return alert( `error` );
+                        var state_id = e.target.getAttribute( "data-state_id" );
                         var info_for_bob = await hedgehog.aliceSendsHtlc( state_id, amnt, htlc_hash, invoice );
                     }
                     $( '.receive' ).setAttribute( "data-state_id", state_id );
                     $( '.receive' ).onclick = async e => {
                         var amnt = Number( prompt( `enter an amount you want to receive` ) );
                         if ( !amnt ) return;
+                        showModal( `<p>loading...</p>` );
                         // var chan_ids = JSON.parse( e.target.getAttribute( "data-hedgehog_chan_ids" ) );
                         var state_id = e.target.getAttribute( "data-state_id" );
                         var state = hedgehog_factory.state[ state_id ];
@@ -5574,8 +5575,24 @@
                     var invoice = json.msg.invoice;
                     var secret = json.msg.secret;
                     var invoice_to_receive_with = await hedgehog.aliceReceivesHTLC({amnt, secret, invoice, state_id});
-                    console.log( "have someone pay this:" );
-                    console.log( invoice_to_receive_with );
+                    // console.log( "have someone pay this:" );
+                    // console.log( invoice_to_receive_with );
+                    var url = "lightning:" + invoice_to_receive_with;
+                    var a = document.createElement( "a" );
+                    a.href = url;
+                    a.target = "_blank";
+                    a.append( createQR( invoice_to_receive_with.toUpperCase() ) );
+                    var prep_div = document.createElement( "div" );
+                    prep_div.append( a );
+                    var div_html = prep_div.innerHTML;
+                    showModal( `<div style="max-width: 15rem; margin: auto;">${div_html}<div class="copy_box"><input class="copy_addy noselect" value="${invoice_to_receive_with}" disabled=""><span>&nbsp;</span><div class="copy_btn">⎘</div></div></div>` );
+                    $( '.copy_btn' ).onclick = () => {
+                        var copytext = $( '.copy_addy' );
+                        copytext.select();
+                        copytext.setSelectionRange( 0, 99999 );
+                        navigator.clipboard.writeText( copytext.value );
+                        showToast( 'copied' );
+                    }
                 },
                 runInitiateLNReceive: async ( msg, state_id ) => {
                     console.log( 0 );
