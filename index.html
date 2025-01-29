@@ -4204,18 +4204,19 @@
             .minutes_selector span {
                 margin-left: .5rem;
             }
-            .view_signers {
+            .view_signers, .ejection_buttons {
                 text-align: center;
             }
-            .signer {
+            .signer, .ejectable_user {
                 display: inline-block;
                 border: 1px solid black;
                 border-radius: 1rem;
+                width: 100%;
                 max-width: 12rem;
                 padding: 1rem;
                 margin: .5rem;
             }
-            .signer img {
+            .signer img, .ejectable_user img {
                 width: 100%;
             }
             @media screen and (max-width: 600px) {
@@ -4660,6 +4661,7 @@
                         amount_alice_expects_in_next_htlc: 0,
                         users_to_delete: [],
                         validating: false,
+                        admin_info_on_each_user: {},
                     }
                     var state = hedgehog_factory.state[ state_id ];
                     if ( params[ "privkey" ] ) state.privkey = params[ "privkey" ];
@@ -5367,16 +5369,59 @@
                         state.users_to_delete = naughty_peers;
                         return;
                     }
-                    var i; for ( i=0; i<all_peers.length; i++ ) $( '.ejection_buttons' ).innerHTML = $( '.ejection_buttons' ).innerHTML + `<button onclick="hedgehog_factory.ejectUser( ${i}, '${state_id}' );" class="eject_user_btn">Eject user ${i + 1}</button>`;
+                    var i; for ( i=0; i<all_peers.length; i++ ) {
+                        var peer = all_peers[ i ];
+                        var div = document.createElement( "div" );
+                        div.innerHTML = `
+                            <div class="ejectable_user user_${peer}">
+                                <img src="https://upload.wikimedia.org/wikipedia/commons/a/ac/Default_pfp.jpg">
+                                <p>${peer.substring( 0, 4 ) + "..." + peer.substring( peer.length - 4 )}</p>
+                                <p>Balance: <span class="user_balance">0</span> sats</p>
+                                <p>PnL: <span class="pnl">0</span> sats</p>
+                                <p><button>View profits</button></p>
+                                <p><button>View losses</button></p>
+                                <p><button onclick="hedgehog_factory.ejectUser( ${i}, '${state_id}' );" class="eject_user_btn">Eject user ${i + 1}</button></p>
+                            </div>
+                        `;
+                        $( '.ejection_buttons' ).append( div.firstElementChild );
+                    }
                     $$( '.signer .progressBar' ).forEach( item => item.style.width = `100%` );
                     $( '.validation_phase .progressBar' ).style.width = `100%`;
                     setTimeout( () => {showPage( 'ejection_buttons' );}, 2000 );
                     var sig_for_funding_tx = tapscript.Signer.taproot.sign( privkey, funding_tx, 0 );
                     funding_tx.vin[ 0 ].witness = [ sig_for_funding_tx ];
+                    var funding_txid = tapscript.Tx.util.getTxid( funding_tx );
                     var txhex = tapscript.Tx.encode( funding_tx ).hex;
                     console.log( 'broadcast this:' );
                     console.log( txhex );
                     state.signing_finished = true;
+                    var funding_inputs_sum = 0;
+                    var funding_outputs_sum = 0;
+                    funding_tx.vin.forEach( vin => funding_inputs_sum = funding_inputs_sum + vin.prevout.value );
+                    funding_tx.vout.forEach( vout => funding_outputs_sum = funding_outputs_sum + vout.value );
+                    peers_to_message.forEach( user => {
+                        state.admin_info_on_each_user[ user ] = {
+                            losses: {},
+                            profits: {
+                                "funding": {
+                                    txhash: null,
+                                    kind: "lightning",
+                                    gain: state.channel_cost,
+                                    desc: "",
+                                    date: Math.floor( Date.now() / 1000 ),
+                                }
+                            },
+                            balance: 0,
+                            last_active: Math.floor( Date.now() / 1000 ),
+                        }
+                        state.admin_info_on_each_user[ user ][ "losses" ][ "funding" ] = {
+                            txhash: funding_txid,
+                            kind: "base layer",
+                            loss: Math.ceil( ( funding_inputs_sum - funding_outputs_sum ) / peers_to_message.length ),
+                            desc: `this funding transaction costed ${funding_inputs_sum - funding_outputs_sum} sats total, and was divided among ${peers_to_message.length} users`,
+                            date: Math.floor( Date.now() / 1000 ),
+                        };
+                    });
                     // Tell everyone their channels are active
                     //send a message to each user and include the
                     //signatures they need to unilaterally withdraw
@@ -6035,6 +6080,23 @@
                     $( '.shareable_link' ).innerText = url;
                     state.nwc_string = hedgehog_factory.hexToText( params.nwc_string );
                     var nwc_obj = nwcjs.processNWCstring( state.nwc_string );
+                    var adminViewpoint = async () => {
+                        if ( $( '.ejection_buttons' ).innerHTML ) {
+                            var admin_info = state.admin_info_on_each_user;
+                            Object.keys( admin_info ).forEach( user => {
+                                $( `.user_${user} .user_balance` ).innerText = admin_info[ user ].balance;
+                                var sum_of_profits = 0;
+                                Object.keys( admin_info[ user ].profits ).forEach( item => sum_of_profits = sum_of_profits + admin_info[ user ].profits[ item ].gain );
+                                var sum_of_losses = 0;
+                                Object.keys( admin_info[ user ].losses ).forEach( item => sum_of_losses = sum_of_losses + admin_info[ user ].losses[ item ].loss );
+                                var PnL = sum_of_profits - sum_of_losses;
+                                $( `.user_${user} .pnl` ).innerText = PnL;
+                            });
+                        }
+                        await hedgehog_factory.waitSomeTime( 1_000 );
+                        adminViewpoint();
+                    }
+                    adminViewpoint();
                 }
             }
             $( '.start_signing_ceremony' ).onclick = async () => {
