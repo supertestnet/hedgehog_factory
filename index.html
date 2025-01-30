@@ -1147,15 +1147,26 @@
                     // console.log( JSON.stringify( info_for_bob ) );
                     var recipient = state.all_peers[ 0 ];
                     var secret = super_nostr.getPrivkey();
-                    var msg = JSON.stringify({
-                        type: "initiate_ln_payment",
-                        msg: {
-                            info_for_bob,
-                            secret,
-                            invoice_to_pay,
-                        }
-                    });
-                    node.send( 'initiate_ln_payment', msg, recipient, msg_id );
+                    if ( invoice_to_pay ) {
+                        var msg = JSON.stringify({
+                            type: "initiate_ln_payment",
+                            msg: {
+                                info_for_bob,
+                                secret,
+                                invoice_to_pay,
+                            }
+                        });
+                        node.send( 'initiate_ln_payment', msg, recipient, msg_id );
+                    } else {
+                        var msg = JSON.stringify({
+                            type: "initiate_hh_payment",
+                            msg: {
+                                info_for_bob,
+                                secret,
+                            }
+                        });
+                        node.send( 'initiate_hh_payment', msg, recipient, msg_id );
+                    }
                     var preparsed_info_from_bob = await hedgehog_factory.getNote( secret );
                     delete hedgehog_factory.retrievables[ secret ];
                     var { secret_for_responding_to_bob } = JSON.parse( preparsed_info_from_bob );
@@ -1298,9 +1309,11 @@
                     if ( amnt < 330 ) return alert( `the dust limit is 330 sats and this htlc is worth only ${amnt} sats so we reject it` );
                     if ( amnt > hedgehog.state[ chan_id ].balances[ 0 ] ) return alert( `alice tried to send you more money than she has so we reject it` );
                     //TODO: ensure checking the invoice here doesn't crash my app
-                    var invoice_amt = hedgehog.getInvoiceAmount( invoice_to_pay );
-                    //TODO: let the operator charge a fee to pay invoices
-                    if ( invoice_amt > amnt ) return alert( `alice tried to send you less money than the invoice she wants you to pay` );
+                    if ( invoice_to_pay ) {
+                        var invoice_amt = hedgehog.getInvoiceAmount( invoice_to_pay );
+                        //TODO: let the operator charge a fee to pay invoices
+                        if ( invoice_amt > amnt ) return alert( `alice tried to send you less money than the invoice she wants you to pay` );
+                    }
 
                     //automatically find out if I am Alice or Bob using the chan_id
                     var am_alice = !!hedgehog.state[ chan_id ].alices_privkey;
@@ -1844,7 +1857,7 @@
 
                     //i am bob
 
-                    return invoice_to_pay;
+                    return invoice_to_pay || true;
                 },
                 bobSendsHtlc: async ( state_id, amnt, htlc_hash = null, invoice = null, alices_nostr_pubkey ) => {
                     var msg_id = state_id;
@@ -1866,17 +1879,29 @@
                     var socket_id = Object.keys( super_nostr.sockets )[ 0 ];
                     var socket = super_nostr.sockets[ socket_id ].socket;
                     var secret = super_nostr.getPrivkey();
-                    var msg = JSON.stringify({
-                        type: "get_revocation_data",
-                        msg: {
-                            secret,
-                            state_id,
-                            amnt,
-                            invoice,
-                        }
-                    });
-                    // console.log( 4, 'waiting for this secret:', secret );
-                    node.send( 'get_revocation_data', msg, alices_nostr_pubkey, msg_id );
+                    if ( invoice ) {
+                        var msg = JSON.stringify({
+                            type: "get_revocation_data",
+                            msg: {
+                                secret,
+                                state_id,
+                                amnt,
+                                invoice,
+                            }
+                        });
+                        node.send( 'get_revocation_data', msg, alices_nostr_pubkey, msg_id );
+                    } else {
+                        var msg = JSON.stringify({
+                            type: "get_revocation_data",
+                            msg: {
+                                secret,
+                                state_id,
+                                amnt,
+                                htlc_hash,
+                            }
+                        });
+                        node.send( 'get_revocation_data', msg, alices_nostr_pubkey, msg_id );
+                    }
                     // console.log( 5 );
                     var preparsed_info_from_alice = await hedgehog_factory.getNote( secret );
                     // console.log( 6 );
@@ -4673,6 +4698,7 @@
                         nwc_string: null,
                         loop_delay: 5,
                         amount_alice_expects_in_next_htlc: 0,
+                        pmthash_alice_expects_in_next_htlc: 0,
                         users_to_delete: [],
                         validating: false,
                         admin_info_on_each_user: {},
@@ -5667,21 +5693,30 @@
                     state.opening_info_for_hedgehog_channels[ state.pubkey ].forEach( item => hedgehog_chan_ids.push( item.chan_id ) );
                     $( '.send' ).setAttribute( "data-state_id", state_id );
                     $( '.send' ).onclick = async e => {
+                        var state_id = e.target.getAttribute( "data-state_id" );
+                        var do_lightning = confirm( 'click ok to send via LN or cancel to send via hedgehog' );
+                        if ( !do_lightning ) {
+                            hedgehog_factory.sendViaHedgehog( state_id );
+                            return;
+                        }
                         var invoice = prompt( `enter an ln invoice` );
                         var htlc_hash = hedgehog.getInvoicePmthash( invoice );
                         var amnt = hedgehog.getInvoiceAmount( invoice );
                         if ( !amnt || !htlc_hash || amnt < 1 ) return alert( `error` );
-                        var state_id = e.target.getAttribute( "data-state_id" );
                         showModal( '<p>paying...</p>' );
-                        var info_for_bob = await hedgehog.aliceSendsHtlc( state_id, amnt, htlc_hash, invoice );
+                        await hedgehog.aliceSendsHtlc( state_id, amnt, htlc_hash, invoice );
                     }
                     $( '.receive' ).setAttribute( "data-state_id", state_id );
                     $( '.receive' ).onclick = async e => {
+                        var state_id = e.target.getAttribute( "data-state_id" );
+                        var do_lightning = confirm( 'click ok to receive via LN or cancel to receive via hedgehog' );
+                        if ( !do_lightning ) {
+                            hedgehog_factory.receiveViaHedgehog( state_id );
+                            return;
+                        }
                         var amnt = Number( prompt( `enter an amount you want to receive` ) );
                         if ( !amnt ) return;
                         showModal( `<p>loading...</p>` );
-                        // var chan_ids = JSON.parse( e.target.getAttribute( "data-hedgehog_chan_ids" ) );
-                        var state_id = e.target.getAttribute( "data-state_id" );
                         var state = hedgehog_factory.state[ state_id ];
                         var all_peers = state.all_peers;
                         var recipient = all_peers[ 0 ];
@@ -5690,7 +5725,6 @@
                             msg: {
                                 amnt,
                                 state_id,
-                                // chan_ids,
                             }
                         });
                         state.amount_alice_expects_in_next_htlc = amnt;
@@ -5718,26 +5752,31 @@
                     var expected_amnt = state.amount_alice_expects_in_next_htlc;
                     if ( amnt !== expected_amnt ) return alert( `aborting because Bob tried to send you an amount other than the amount you asked for` );
                     state.amount_alice_expects_in_next_htlc = 0;
-                    var invoice = json.msg.invoice;
+                    var invoice = null;
+                    if ( json.msg.hasOwnProperty( "invoice" ) ) invoice = json.msg.invoice;
                     var secret = json.msg.secret;
+                    //if the user is receiving an LN payment, the following function
+                    //returns an LN invoice; otherwise it returns the boolean true 
                     var invoice_to_receive_with = await hedgehog.aliceReceivesHTLC({amnt, secret, invoice, state_id});
-                    // console.log( "have someone pay this:" );
-                    // console.log( invoice_to_receive_with );
-                    var url = "lightning:" + invoice_to_receive_with;
-                    var a = document.createElement( "a" );
-                    a.href = url;
-                    a.target = "_blank";
-                    a.append( createQR( invoice_to_receive_with.toUpperCase() ) );
-                    var prep_div = document.createElement( "div" );
-                    prep_div.append( a );
-                    var div_html = prep_div.innerHTML;
-                    showModal( `<div style="max-width: 15rem; margin: auto;">${div_html}<div class="copy_box"><input class="copy_addy noselect" value="${invoice_to_receive_with}" disabled=""><span>&nbsp;</span><div class="copy_btn">⎘</div></div></div>` );
-                    $( '.copy_btn' ).onclick = () => {
-                        var copytext = $( '.copy_addy' );
-                        copytext.select();
-                        copytext.setSelectionRange( 0, 99999 );
-                        navigator.clipboard.writeText( copytext.value );
-                        showToast( 'copied' );
+                    if ( invoice_to_receive_with && String( invoice_to_receive_with ).startsWith( "lnbc" ) ) {
+                        // console.log( "have someone pay this:" );
+                        // console.log( invoice_to_receive_with );
+                        var url = "lightning:" + invoice_to_receive_with;
+                        var a = document.createElement( "a" );
+                        a.href = url;
+                        a.target = "_blank";
+                        a.append( createQR( invoice_to_receive_with.toUpperCase() ) );
+                        var prep_div = document.createElement( "div" );
+                        prep_div.append( a );
+                        var div_html = prep_div.innerHTML;
+                        showModal( `<div style="max-width: 15rem; margin: auto;">${div_html}<div class="copy_box"><input class="copy_addy noselect" value="${invoice_to_receive_with}" disabled=""><span>&nbsp;</span><div class="copy_btn">⎘</div></div></div>` );
+                        $( '.copy_btn' ).onclick = () => {
+                            var copytext = $( '.copy_addy' );
+                            copytext.select();
+                            copytext.setSelectionRange( 0, 99999 );
+                            navigator.clipboard.writeText( copytext.value );
+                            showToast( 'copied' );
+                        }
                     }
                 },
                 runInitiateLNReceive: async ( msg, state_id ) => {
@@ -5765,6 +5804,20 @@
                     var htlc_hash = hedgehog.getInvoicePmthash( invoice );
                     // console.log( 3, msg_id, amnt, htlc_hash, invoice, msg.ctx.pubkey );
                     hedgehog.bobSendsHtlc( msg_id, amnt, htlc_hash, invoice, msg.ctx.pubkey );
+                },
+                runInitiateHHReceive: async ( msg, state_id ) => {
+                    var json = JSON.parse( msg.dat );
+                    //TODO: validate that the state_id exists
+                    var state_id = json.msg.state_id;
+                    var msg_id = state_id;
+                    var state = hedgehog_factory.state[ state_id ];
+                    var amnt = Number( json.msg.amnt );
+                    if ( !amnt || amnt < 0 ) return 'error';
+                    //TODO: ensure you have outgoing capacity
+                    var htlc_hash = json.msg.hash;
+                    //TODO: ensure the hash for this request also matches one that is pending 
+                    //in the sender's channel
+                    hedgehog.bobSendsHtlc( msg_id, amnt, htlc_hash, null, msg.ctx.pubkey );
                 },
                 runInitiateLNPayment: async ( msg, state_id ) => {
                     var json = JSON.parse( msg.dat );
@@ -5810,7 +5863,6 @@
                                     state_id,
                                 }
                             });
-                            console.log( invoice_status_info.result );
                             var fees_paid = Math.ceil( invoice_status_info.result.fees_paid / 1000 );
                             hedgehog_factory.state[ state_id ].admin_info_on_each_user[ alices_pubkey ].losses.push({
                                 label: "",
@@ -5830,6 +5882,71 @@
                         return loop();
                     }
                     await loop();
+                },
+                runInitiateHHPayment: async ( msg, state_id ) => {
+                    var json = JSON.parse( msg.dat );
+                    var msg_id = state_id;
+                    var info_from_alice = json.msg.info_for_bob;
+                    //validate that the state_id exists
+                    if ( info_from_alice.state_id !== state_id ) return;
+                    var state = hedgehog_factory.state[ state_id ];
+                    var nwc_string = state.nwc_string;
+                    var nwc_info = nwcjs.processNWCstring( nwc_string );
+                    var secret_for_responding_to_alice = json.msg.secret;
+                    var alices_pubkey = msg.ctx.pubkey;
+                    var chan_ids = [];
+                    state.opening_info_for_hedgehog_channels[ alices_pubkey ].forEach( opener => chan_ids.push( opener.chan_id ) );
+                    var all_is_well = await hedgehog.bobReceivesHTLC( info_from_alice, secret_for_responding_to_alice, alices_pubkey );
+                    if ( !all_is_well ) return alert( `abort, Alice sent you invalid htlc data` );
+                },
+                settleHedgehog: async ( msg, state_id ) => {
+                    var json = JSON.parse( msg.dat );
+                    //TODO: validate the state id and the preimage
+                    var provided_state_id = json.msg.state_id;
+                    if ( provided_state_id !== state_id ) return alert( `aborting because the admin sent you an invalid state id` );
+                    var msg_id = state_id;
+                    var state = hedgehog_factory.state[ state_id ];
+                    var preimage = json.msg.preimage;
+                    var sender = json.msg.sender;
+                    var recipient = msg.ctx.pubkey;
+                    //TODO: ensure the sender has a pending htlc for the same amount + payment hash
+                    var chan_ids = [];
+                    var opening_info = state.opening_info_for_hedgehog_channels[ recipient ];
+                    opening_info.forEach( opener => chan_ids.push( opener.chan_id ) );
+                    //resolve the htlc
+                    var all_sigs_and_stuff = [];
+                    var i; for ( i=0; i<chan_ids.length; i++ ) {
+                        var chan_id = chan_ids[ i ];
+                        var sigs_and_stuff = await hedgehog.checkIfOutgoingHTLCIsSettled( chan_id, preimage );
+                        all_sigs_and_stuff.push( sigs_and_stuff );
+                    }
+                    var msg = JSON.stringify({
+                        type: "payment_complete",
+                        msg: {
+                            state_id,
+                            preimage,
+                            sigs_and_stuff: all_sigs_and_stuff,
+                        }
+                    });
+                    var node = state.node;
+                    node.send( 'payment_complete', msg, recipient, msg_id );
+                    //TODO: check if the sender is online before trying to settle with them
+                    var senders_chan_ids = [];
+                    opening_info = state.opening_info_for_hedgehog_channels[ sender ];
+                    opening_info.forEach( opener => senders_chan_ids.push( opener.chan_id ) );
+                    var k; for ( k=0; k<senders_chan_ids.length; k++ ) {
+                        var chan_id = senders_chan_ids[ k ];
+                        var pmt_status = await hedgehog.settleIncomingHTLC({ chan_id, preimage });
+                        if ( !pmt_status.startsWith( "that went well" ) ) return alert( `something went wrong: ${pmt_status}` );
+                    }
+                    var msg = JSON.stringify({
+                        type: "payment_succeeded",
+                        msg: {
+                            preimage,
+                            state_id,
+                        }
+                    });
+                    node.send( 'payment_succeeded', msg, sender, msg_id );
                 },
                 runPaymentSucceeded: async ( msg, state_id ) => {
                     var json = JSON.parse( msg.dat );
@@ -5903,6 +6020,62 @@
                         hedgehog.receive( sigs_and_stuff, skip_pending_check );
                         hedgehog.state[ chan_id ].pending_htlc = {}
                     }
+                },
+                sendViaHedgehog: async state_id => {
+                    if ( !state_id ) return alert( `you forgot the state_id` );
+                    var amnt = Number( prompt( `enter how many sats you want to send` ) );
+                    if ( !amnt || amnt < 1 ) return alert( `error` );
+                    //TODO: ensure the amount is less than what you have
+                    var preimage = nobleSecp256k1.utils.randomPrivateKey();
+                    var htlc_hash = await hedgehog.sha256( preimage );
+                    preimage = hedgehog.bytesToHex( preimage );
+                    showModal( `<p>Send this to your recipient:</p><p>{"preimage": "${preimage}", "admin": "whoever", "amnt": ${amnt}, "sender": "${hedgehog_factory.state[ state_id ].pubkey}"}</p>` );
+                    await hedgehog.aliceSendsHtlc( state_id, amnt, htlc_hash );
+                },
+                receiveViaHedgehog: async state_id => {
+                    var info_from_sender = prompt( `enter the info from the sender` );
+                    console.log( info_from_sender );
+                    info_from_sender = JSON.parse( info_from_sender );
+                    if ( !info_from_sender ) return;
+                    var amnt = info_from_sender.amnt;
+                    //TODO: ensure the amount is less than your receiving capacity
+                    var preimage = info_from_sender.preimage;
+                    var hash = await hedgehog.sha256( hedgehog.hexToBytes( preimage ) );
+                    var sender = info_from_sender.sender;
+                    showModal( `<p>loading...</p>` );
+                    var state = hedgehog_factory.state[ state_id ];
+                    var all_peers = state.all_peers;
+                    var recipient = all_peers[ 0 ];
+                    var msg = JSON.stringify({
+                        type: "initiate_hh_receive",
+                        msg: {
+                            amnt,
+                            state_id,
+                            sender,
+                            hash,
+                        }
+                    });
+                    state.amount_alice_expects_in_next_htlc = amnt;
+                    state.pmthash_alice_expects_in_next_htlc = hash;
+                    var node = state.node;
+                    var msg_id = state_id;
+                    node.send( 'initiate_hh_receive', msg, recipient, msg_id );
+                    //run a loop to check if the htlc exists yet; when it exists,
+                    //send the preimage to the admin
+                    var loop = async () => {
+                        var pending_htlc_exists = false;
+                        var chan_id = state.opening_info_for_hedgehog_channels[ state.pubkey ][ 0 ].chan_id;
+                        console.log( 'checking if pending htlc exists:' );
+                        console.log( hedgehog.state[ chan_id ].pending_htlc );
+                        if ( hedgehog.state[ chan_id ].pending_htlc && hedgehog.state[ chan_id ].pending_htlc[ "htlc_hash" ] === hash ) {
+                            console.log( 'sending preimage to admin' );
+                            node.send( 'hh_preimage', JSON.stringify({msg: {preimage, sender, state_id}}), recipient, msg_id );
+                            return;
+                        }
+                        await hedgehog_factory.waitSomeTime( 1000 );
+                        loop();
+                    }
+                    loop();
                 },
             }
             var showPage = page => {
@@ -6046,7 +6219,7 @@
                             hedgehog_factory.runGetRevData( msg, state_id );
                             return;
                         }
-                        //if the admin sends the "payment_complete" message, settle the outbound htlc
+                        //if the admin sends the "payment_complete" message, settle the inbound htlc
                         if ( msg.ctx.pubkey === params.routing_node && msg.tag === "payment_complete" ) {
                             var json = JSON.parse( msg.dat );
                             //TODO: ensure the state exists
@@ -6101,7 +6274,7 @@
                             }, 500 );
                             return;
                         }
-                        //if the admin sends the "payment_succeeded" signal, settle the inbound htlc
+                        //if the admin sends the "payment_succeeded" signal, settle the outbound htlc
                         if ( msg.ctx.pubkey === params.routing_node && msg.tag === "payment_succeeded" ) {
                             var state_id = msg_id;
                             hedgehog_factory.runPaymentSucceeded( msg, state_id );
@@ -6178,10 +6351,28 @@
                             hedgehog_factory.runInitiateLNReceive( msg, state_id );
                             return;
                         }
+                        //if the admin receives the "initiate_hh_receive" signal, run hedgehog_factory.runInitiateHHReceive()
+                        if ( params.hasOwnProperty( "admin" ) && state.all_peers.includes( msg.ctx.pubkey ) && msg.tag === "initiate_hh_receive" ) {
+                            var state_id = msg_id;
+                            hedgehog_factory.runInitiateHHReceive( msg, state_id );
+                            return;
+                        }
+                        //if the admin receives the "hh_preimage" signal, run hedgehog_factory.settleHedgehog()
+                        if ( params.hasOwnProperty( "admin" ) && state.all_peers.includes( msg.ctx.pubkey ) && msg.tag === "hh_preimage" ) {
+                            var state_id = msg_id;
+                            hedgehog_factory.settleHedgehog( msg, state_id );
+                            return;
+                        }
                         //if the admin receives the "initiate_ln_payment" signal, run hedgehog_factory.runInitiateLNPayment()
                         if ( params.hasOwnProperty( "admin" ) && state.all_peers.includes( msg.ctx.pubkey ) && msg.tag === "initiate_ln_payment" ) {
                             var state_id = msg_id;
                             hedgehog_factory.runInitiateLNPayment( msg, state_id );
+                            return;
+                        }
+                        //if the admin receives the "initiate_hh_payment" signal, run hedgehog_factory.runInitiateHHPayment()
+                        if ( params.hasOwnProperty( "admin" ) && state.all_peers.includes( msg.ctx.pubkey ) && msg.tag === "initiate_hh_payment" ) {
+                            var state_id = msg_id;
+                            hedgehog_factory.runInitiateHHPayment( msg, state_id );
                             return;
                         }
                         //if the admin receives the "resolve_htlc" signal, run hedgehog_factory.runResolveHTLC()
@@ -6314,7 +6505,7 @@
                     console.log( `sending ${peer} their invoice` );
                     var msg = JSON.stringify({
                         type: "pay_invoice",
-                        value: invoice,
+                        value: who_should_pay[ peer ][ 1 ],
                     });
                     node.send( 'preparation_phase', msg, peers[ index ], msg_id );
                     var start_time = Math.floor( Date.now() / 1000 );
