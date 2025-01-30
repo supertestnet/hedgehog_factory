@@ -1839,6 +1839,8 @@
 
                     //TODO: set up a listener to get the preimage from somewhere
                     //or restore the old state after too much time goes by without resolution
+                    //note that I do have a listener set up in the runInitiateLNPayment function
+                    //but it doesn't restore the old state if too much time goes by w/o resolution
 
                     //i am bob
 
@@ -3520,7 +3522,8 @@
                     //Note that if Bob sends payment_complete he includes the preimage, and I
                     //do have a listener set up to get it from that message, assuming he sends
                     //it -- but I need to be prepared to get the preimage from the sender if
-                    //Bob decides to try to scam me by not sending it
+                    //Bob decides to try to scam me by not sending it, and I need to restore
+                    //the old state if too much time goes by without resolution
 
                     //i am alice
 
