@@ -6031,6 +6031,22 @@
                     preimage = hedgehog.bytesToHex( preimage );
                     showModal( `<p>Send this to your recipient:</p><p>{"preimage": "${preimage}", "admin": "whoever", "amnt": ${amnt}, "sender": "${hedgehog_factory.state[ state_id ].pubkey}"}</p>` );
                     await hedgehog.aliceSendsHtlc( state_id, amnt, htlc_hash );
+                    var state = hedgehog_factory.state[ state_id ];
+                    var loop = async () => {
+                        var pending_htlc_exists = false;
+                        var chan_id = state.opening_info_for_hedgehog_channels[ state.pubkey ][ 0 ].chan_id;
+                        console.log( 'checking if pending htlc exists:' );
+                        console.log( hedgehog.state[ chan_id ].pending_htlc );
+                        if ( !hedgehog.state[ chan_id ].pending_htlc ) {
+                            modalVanish();
+                            var mybal = hedgehog.state[ hedgehog_factory.state[ state_id ].opening_info_for_hedgehog_channels[ hedgehog_factory.state[ state_id ].pubkey ][ 0 ].chan_id ].balances[ 0 ];
+                            balance.setState( () => balance.bal = mybal );
+                            return;
+                        }
+                        await hedgehog_factory.waitSomeTime( 1000 );
+                        loop();
+                    }
+                    loop();
                 },
                 receiveViaHedgehog: async state_id => {
                     var info_from_sender = prompt( `enter the info from the sender` );
