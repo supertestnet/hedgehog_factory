@@ -342,7 +342,6 @@
 
                     //prepare the transaction that moves all funds to Bob's side
                     var opening = true;
-                    console.log( chan_id, amnt - 500 - 500, opening );
                     var sigs_and_stuff = hedgehog.send( chan_id, amnt - 500 - 500, opening );
                     sigs_and_stuff[ "amnt" ] = amnt;
                     console.log( "send this data to your recipient:" );
@@ -463,8 +462,8 @@
                         if ( amnt_for_bob ) tx1.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
                     }
                     // console.log( 87, JSON.stringify( tx1 ) );
-                    // console.log( "tx0:", JSON.stringify( tx0 ) );
-                    // console.log( "tx1:", JSON.stringify( tx1 ) );
+                    // console.log( 69, "tx0:", JSON.stringify( tx0 ) );
+                    // console.log( 70, "tx1:", JSON.stringify( tx1 ) );
 
                     //Sign both of these transactions, but sign tx1 with a sig that
                     //is only valid after a relative timelock of 2016 blocks expires.
@@ -654,8 +653,8 @@
                         if ( amnt_for_bob ) tx1.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
                     }
                     // console.log( 88, JSON.stringify( tx1 ) );
-                    // console.log( "tx0:", JSON.stringify( tx0 ) );
-                    // console.log( "tx1:", JSON.stringify( tx1 ) );
+                    // console.log( 89, "tx0:", JSON.stringify( tx0 ) );
+                    // console.log( 90, "tx1:", JSON.stringify( tx1 ) );
 
                     //validate the signatures by which the sender creates the new state
                     if ( am_alice ) var pubkey_to_validate_against = hedgehog.state[ chan_id ].bobs_pubkey;
@@ -859,6 +858,7 @@
                 },
                 aliceSendsHtlc: async ( state_id, amnt, htlc_hash = null, invoice_to_pay ) => {
                     if ( amnt < 330 ) return alert( `the dust limit is 330 sats and you want to make an htlc worth less than that, i.e. only ${amnt} sats, so it cannot be done -- the software refuses and your only recourse is to find or make a modified version that allows dust htlcs` );
+                    var amnt_before_any_changes = amnt;
                     var state = hedgehog_factory.state[ state_id ];
                     var node = state.node;
                     var chan_ids = [];
@@ -886,6 +886,7 @@
                     var alices_first_htlc_sigs = [];
                     var alices_second_htlc_sigs = [];
                     var conditional_revocation_sigs = [];
+                    var full_revocation_preimages = [];
                     var alices_conditional_first_htlc_sigs = [];
                     var alices_conditional_second_htlc_sigs = [];
                     var sig_1s = [];
@@ -901,7 +902,11 @@
                     var timeout_txs = [];
                     var msg_id = state_id;
 
+                    // console.log( 80, 'current balance:', JSON.parse( JSON.stringify( hedgehog.state[ chan_ids[ 0 ] ].balances ) ) );
+                    // console.log( 81, 'prev balance:', JSON.parse( JSON.stringify( hedgehog.state[ chan_ids[ 0 ] ].balances_before_most_recent_send ) ) );
+
                     var k; for ( k=0; k<chan_ids.length; k++ ) {
+                        amnt = amnt_before_any_changes;
                         var chid = chan_ids[ k ];
                         //if I am the previous sender, restore the state to what it was before
                         //I last sent so I can overwrite my previous state update
@@ -928,6 +933,7 @@
                             if ( am_alice ) amnt = ( current_balances[ 1 ] - hedgehog.state[ chid ].balances[ 1 ] ) + amnt;
                             else amnt = ( current_balances[ 0 ] - hedgehog.state[ chid ].balances[ 0 ] ) + amnt;
                         }
+                        // if ( hedgehog.state[ chid ].i_was_last_to_send ) console.log( 82, amnt, current_balances[ 1 ], hedgehog.state[ chid ].balances[ 1 ], amnt );
 
                         //create the revocation scripts so the recipient can revoke this state later
                         if ( am_alice ) {
@@ -1113,6 +1119,7 @@
                         if ( full_revocation_is_necessary ) {
                             if ( am_alice ) var full_revocation_preimage = hedgehog.state[ chid ].alices_revocation_preimages[ hedgehog.state[ chid ].alices_revocation_preimages.length - 2 ];
                             else var full_revocation_preimage = hedgehog.state[ chid ].bobs_revocation_preimages[ hedgehog.state[ chid ].bobs_revocation_preimages.length - 2 ];
+                            full_revocation_preimages.push( full_revocation_preimage );
                         }
 
                         //use the preimage/hash pair, created earlier, to enable your counterparty
@@ -1221,7 +1228,7 @@
                         sig_3s,
                         conditional_revocation_sigs,
                     }
-                    if ( full_revocation_is_necessary ) object[ "full_revocation_preimage" ] = full_revocation_preimage;
+                    if ( full_revocation_is_necessary ) object[ "full_revocation_preimages" ] = full_revocation_preimages;
 
                     var msg = JSON.stringify({
                         type: "secret_you_need",
@@ -1665,7 +1672,7 @@
                         if ( am_alice && hedgehog.state[ chid ].bobs_revocation_hashes.length > 2 ) full_revocation_is_necessary = true;
                         if ( !am_alice && hedgehog.state[ chid ].alices_revocation_hashes.length > 2 ) full_revocation_is_necessary = true;
                         if ( full_revocation_is_necessary ) {
-                            if ( !( "full_revocation_preimage" in data ) ) {
+                            if ( !( "full_revocation_preimages" in data ) ) {
                                 //restore old state and inform user this state update was invalid
                                 if ( am_alice ) {
                                     hedgehog.state[ chid ].bobs_revocation_hashes.push( old_rev_hashes );
@@ -1681,7 +1688,7 @@
                             else var prev_address = hedgehog.state[ chid ].alice_can_revoke[ hedgehog.state[ chid ].alice_can_revoke.length - 2 ][ 0 ];
                             if ( am_alice ) var prev_scripts = hedgehog.state[ chid ].bob_can_revoke[ hedgehog.state[ chid ].bob_can_revoke.length - 2 ][ 1 ];
                             else var prev_scripts = hedgehog.state[ chid ].alice_can_revoke[ hedgehog.state[ chid ].alice_can_revoke.length - 2 ][ 1 ];
-                            var preimage = data[ "full_revocation_preimage" ];
+                            var preimage = data[ "full_revocation_preimages" ][ k ];
                             var expected_hash = prev_scripts[ 1 ][ 1 ];
                             var hash_provided = hedgehog.rmd160( hedgehog.hexToBytes( preimage ) );
                             if ( hash_provided != expected_hash ) {
@@ -1693,6 +1700,7 @@
                                     hedgehog.state[ chid ].alices_revocation_hashes.push( old_rev_hashes );
                                     hedgehog.state[ chid ].bob_can_revoke.push( other_rev_info );
                                 }
+                                console.log( 23, 'preimage alice gave:', preimage, 'hash it produces:', hash_provided, 'hash_i_expected:', expected_hash );
                                 return alert( `Your counterparty sent you invalid full-rev data (wrg pmg) so it will be ignored` );
                             }
                             var prev_tx0 = tapscript.Tx.create({
@@ -1860,6 +1868,7 @@
                     return invoice_to_pay || true;
                 },
                 bobSendsHtlc: async ( state_id, amnt, htlc_hash = null, invoice = null, alices_nostr_pubkey ) => {
+                    var amnt_before_any_changes = amnt;
                     var msg_id = state_id;
                     //TODO: ensure the state exists
                     var state = hedgehog_factory.state[ state_id ];
@@ -1995,10 +2004,12 @@
                     var new_second_from_htlc_txs = [];
                     var new_restore_from_revo_txs = [];
                     var new_bob_tried_to_cheat_txs = [];
+                    var full_revocation_preimages = [];
 
                     //if I am the previous sender, restore the state to what it was before
                     //I last sent so I can overwrite my previous state update
                     var k; for ( k=0; k<chan_ids.length; k++ ) {
+                        amnt = amnt_before_any_changes;
                         var chid = chan_ids[ k ];
                         if ( hedgehog.state[ chid ].i_was_last_to_send ) {
                             var current_balances = JSON.parse( JSON.stringify( hedgehog.state[ chid ].balances ) );
@@ -2365,6 +2376,7 @@
                         if ( full_revocation_is_necessary ) {
                             if ( am_alice ) var full_revocation_preimage = hedgehog.state[ chid ].alices_revocation_preimages[ hedgehog.state[ chid ].alices_revocation_preimages.length - 2 ];
                             else var full_revocation_preimage = hedgehog.state[ chid ].bobs_revocation_preimages[ hedgehog.state[ chid ].bobs_revocation_preimages.length - 2 ];
+                            full_revocation_preimages.push( full_revocation_preimage );
                         }
 
                         //use the preimage/hash pair created earlier to prepare for the
@@ -2547,7 +2559,7 @@
                         sig_3s,
                         conditional_revocation_sigs,
                     }
-                    if ( full_revocation_is_necessary ) object[ "full_revocation_preimage" ] = full_revocation_preimage;
+                    if ( full_revocation_is_necessary ) object[ "full_revocation_preimages" ] = full_revocation_preimages;
 
                     var recipient = alices_nostr_pubkey;
                     var msg = JSON.stringify({
@@ -2710,7 +2722,7 @@
                             var invoice_status_info = await nwcjs.checkInvoice( nwc_info, invoice, delay_tolerance );
                             if ( invoice_status_info === "timed out" ) return alert( `you encountered an undefined error while processing this deposit request, try again:\n\n${JSON.stringify( invoice_status_info )}` );
                             if ( "result_type" in invoice_status_info && invoice_status_info[ "result_type" ] !== "lookup_invoice" ) return alert( `your wallet encountered an undefined error while processing this deposit request, try again:\n\n${JSON.stringify( invoice_status_info )}` );
-                            if ( "error" in invoice_status_info && invoice_status_info[ "error" ] ) return alert( `error processing your deposit request: ${JSON.stringify( invoice_status_info[ "error" ] )} -- please try again` );
+                            if ( "error" in invoice_status_info && invoice_status_info[ "error" ] ) return alert( `error processing this deposit request: ${JSON.stringify( invoice_status_info[ "error" ] )} -- please try again` );
                             if ( invoice_status_info.result.settled_at ) {
                                 //resolve the htlc
                                 var all_sigs_and_stuff = [];
@@ -2774,6 +2786,7 @@
                     if ( Object.keys( hedgehog.state[ chan_id ].pending_htlc ).length ) return alert( `you have a pending htlc, and you cannot receive money in this channel while you have one...clear it before proceeding` );
 
                     var amnt = data[ "amnt" ];
+                    var amnt_before_any_changes = amnt;
                     var amnt_to_be_displayed_in_invoice = amnt;
                     if ( amnt < 330 ) return alert( `the dust limit is 330 sats and this htlc is worth only ${amnt} sats so we reject it` );
                     if ( amnt > hedgehog.state[ chan_id ].balances[ 1 ] ) return alert( `bob tried to send you more money than he has so we reject it` );
@@ -2826,6 +2839,7 @@
                         if ( amnt <= hedgehog.state[ chan_id ].balances[ 1 ] - hedgehog.state[ chan_id ].balances_before_most_recent_receive[ 1 ] ) return alert( `aborting because your counterparty tried to send you a negative amount -- it may not look like it, but, since you were the last person to receive, if they want to send you *more* money they ought to take whatever amount they previously sent you, add the new amount to that, and then add the *sum* to whatever amount you had before they most recently sent you money -- and *that's* what they should send you.` );
                         var current_balances = JSON.parse( JSON.stringify( hedgehog.state[ chan_id ].balances ) );
                         var k; for ( k=0; k<chan_ids.length; k++ ) {
+                            amnt = amnt_before_any_changes;
                             var chid = chan_ids[ k ];
                             hedgehog.state[ chid ].balances = hedgehog.state[ chid ].balances_before_most_recent_receive;
                             if ( !hedgehog.state[ chid ].balances.length ) {
@@ -3101,6 +3115,7 @@
                                 hedgehog.state[ chid ].alices_revocation_hashes.push( old_rev_hashes );
                                 hedgehog.state[ chid ].bob_can_revoke.push( other_rev_info );
                             }
+                            // console.log( 84, 'this one' );
                             return alert( `Your counterparty sent you invalid main-sig data so it will be ignored` );
                         }
 
@@ -3299,6 +3314,7 @@
                                 hedgehog.state[ chid ].alices_revocation_hashes.push( old_rev_hashes );
                                 hedgehog.state[ chid ].bob_can_revoke.push( other_rev_info );
                             }
+                            // console.log( 85, 'this one' );
                             return alert( `Your counterparty sent you invalid main-sig data so it will be ignored` );
                         }
 
@@ -3355,7 +3371,7 @@
                         if ( am_alice && hedgehog.state[ chid ].bobs_revocation_hashes.length > 2 ) full_revocation_is_necessary = true;
                         if ( !am_alice && hedgehog.state[ chid ].alices_revocation_hashes.length > 2 ) full_revocation_is_necessary = true;
                         if ( full_revocation_is_necessary ) {
-                            if ( !( "full_revocation_preimage" in data ) ) {
+                            if ( !( "full_revocation_preimages" in data ) ) {
                                 //restore old state and inform user this state update was invalid
                                 if ( am_alice ) {
                                     hedgehog.state[ chid ].bobs_revocation_hashes.push( old_rev_hashes );
@@ -3371,7 +3387,7 @@
                             else var prev_address = hedgehog.state[ chid ].alice_can_revoke[ hedgehog.state[ chid ].alice_can_revoke.length - 2 ][ 0 ];
                             if ( am_alice ) var prev_scripts = hedgehog.state[ chid ].bob_can_revoke[ hedgehog.state[ chid ].bob_can_revoke.length - 2 ][ 1 ];
                             else var prev_scripts = hedgehog.state[ chid ].alice_can_revoke[ hedgehog.state[ chid ].alice_can_revoke.length - 2 ][ 1 ];
-                            var preimage = data[ "full_revocation_preimage" ];
+                            var preimage = data[ "full_revocation_preimages" ][ k ];
                             var expected_hash = prev_scripts[ 1 ][ 1 ];
                             var hash_provided = hedgehog.rmd160( hedgehog.hexToBytes( preimage ) );
                             if ( hash_provided != expected_hash ) {
@@ -3634,6 +3650,7 @@
                     // console.log( 75.6, pending_htlc[ "amnt" ] );
                     // console.log( 76, hedgehog.state[ chan_id ].balances );
                     // console.log( chan_id, amnt_to_send );
+                    // console.log( 80, 'amnt_to_send', amnt_to_send );
                     var sigs_and_stuff = hedgehog.send( chan_id, amnt_to_send, null, skip_pending_check );
                     // console.log( 77, hedgehog.state[ chan_id ].balances );
                     // console.log( "send this data to your counterparty:" );
@@ -3738,20 +3755,7 @@
                 state: {
                     last_tx: 1,
                     offset: 0,
-                    history: {
-                        // abababababababababababababababababababababababababababababababab: {
-                        //     type: "incoming",
-                        //     payment_hash: "ab".repeat( 32 ),
-                        //     invoice: "lnbc1u1pnej54csp58wz0h0962q59k00mjher9w2wkce37qtlqgm629l3w93xuf9fq5espp5zg5wj82f5p266anrzpzg7dpkdzd9ler95un76dqw6p5qxue8dudqhp5uwcvgs5clswpfxhm7nyfjmaeysn6us0yvjdexn9yjkv3k7zjhp2sxq9z0rgqcqpnrzjqwwdmyml3kplktmcertamjf2u2xfmw6ufqn3s88usr0kphhpk7l3jrgzgyqqzmgqqsqqqqlxqqqq2kgqjq9qxpqysgqxx9x8j6f369jy2h3j6r2wfp8g0vmr0v96949yqysjrze00erm6fqa8kdkst5c0w2x2vcd062mfx6drrg4zq89th5w2930klc99d8g8qqdjewm9",
-                        //     bolt11: "lnbc1u1pnej54csp58wz0h0962q59k00mjher9w2wkce37qtlqgm629l3w93xuf9fq5espp5zg5wj82f5p266anrzpzg7dpkdzd9ler95un76dqw6p5qxue8dudqhp5uwcvgs5clswpfxhm7nyfjmaeysn6us0yvjdexn9yjkv3k7zjhp2sxq9z0rgqcqpnrzjqwwdmyml3kplktmcertamjf2u2xfmw6ufqn3s88usr0kphhpk7l3jrgzgyqqzmgqqsqqqqlxqqqq2kgqjq9qxpqysgqxx9x8j6f369jy2h3j6r2wfp8g0vmr0v96949yqysjrze00erm6fqa8kdkst5c0w2x2vcd062mfx6drrg4zq89th5w2930klc99d8g8qqdjewm9",
-                        //     description: "",
-                        //     settled_at: 1738101509,
-                        //     fees_paid: 0,
-                        //     amount: 100000,
-                        //     preimage: "ba".repeat( 32 ),
-                        //     detail_hidden: true,
-                        // },
-                    },
+                    history: {},
                     selected_currencies: [],
                     supported_currencies: [],
                 },
@@ -5937,7 +5941,7 @@
                     var k; for ( k=0; k<senders_chan_ids.length; k++ ) {
                         var chan_id = senders_chan_ids[ k ];
                         var pmt_status = await hedgehog.settleIncomingHTLC({ chan_id, preimage });
-                        if ( !pmt_status.startsWith( "that went well" ) ) return alert( `something went wrong: ${pmt_status}` );
+                        if ( !String( pmt_status ).startsWith( "that went well" ) ) return alert( `something went wrong: ${pmt_status}` );
                     }
                     var msg = JSON.stringify({
                         type: "payment_succeeded",
@@ -5999,6 +6003,7 @@
                             modalVanish();
                             var mybal = hedgehog.state[ chan_ids[ 0 ] ].balances[ 0 ];
                             balance.setState( () => balance.bal = mybal );
+                            brick_wallet.parseHistory();
                         }, 500 );
                     }
                 },
@@ -6032,15 +6037,31 @@
                     showModal( `<p>Send this to your recipient:</p><p>{"preimage": "${preimage}", "admin": "whoever", "amnt": ${amnt}, "sender": "${hedgehog_factory.state[ state_id ].pubkey}"}</p>` );
                     await hedgehog.aliceSendsHtlc( state_id, amnt, htlc_hash );
                     var state = hedgehog_factory.state[ state_id ];
+                    await hedgehog_factory.waitSomeTime( 1000 );
+                    var chan_id = state.opening_info_for_hedgehog_channels[ state.pubkey ][ 0 ].chan_id;
+                    var pending_htlc = hedgehog.state[ chan_id ].pending_htlc;
+                    var pmthash_for_hedgehog = pending_htlc.htlc_hash;
+                    var desc_for_hedgehog = "hedgehog payment";
+                    var amt_for_hedgehog = amnt;
                     var loop = async () => {
-                        var pending_htlc_exists = false;
-                        var chan_id = state.opening_info_for_hedgehog_channels[ state.pubkey ][ 0 ].chan_id;
-                        console.log( 'checking if pending htlc exists:' );
-                        console.log( hedgehog.state[ chan_id ].pending_htlc );
-                        if ( !hedgehog.state[ chan_id ].pending_htlc ) {
+                        var pending_htlc = hedgehog.state[ chan_id ].pending_htlc;
+                        if ( !Object.keys( pending_htlc ).length ) {
                             modalVanish();
+                            brick_wallet.state.history[ pmthash_for_hedgehog ] = {
+                                type: "outgoing",
+                                payment_hash: pmthash_for_hedgehog,
+                                invoice: "none -- this was a hedghog payment",
+                                bolt11: "none -- this was a hedghog payment",
+                                description: desc_for_hedgehog,
+                                settled_at: Math.floor( Date.now() / 1000 ),
+                                fees_paid: 0,
+                                amount: amt_for_hedgehog * 1000,
+                                preimage,
+                                detail_hidden: true,
+                            }
                             var mybal = hedgehog.state[ hedgehog_factory.state[ state_id ].opening_info_for_hedgehog_channels[ hedgehog_factory.state[ state_id ].pubkey ][ 0 ].chan_id ].balances[ 0 ];
                             balance.setState( () => balance.bal = mybal );
+                            brick_wallet.parseHistory();
                             return;
                         }
                         await hedgehog_factory.waitSomeTime( 1000 );
@@ -6050,7 +6071,6 @@
                 },
                 receiveViaHedgehog: async state_id => {
                     var info_from_sender = prompt( `enter the info from the sender` );
-                    console.log( info_from_sender );
                     info_from_sender = JSON.parse( info_from_sender );
                     if ( !info_from_sender ) return;
                     var amnt = info_from_sender.amnt;
@@ -6079,11 +6099,8 @@
                     //run a loop to check if the htlc exists yet; when it exists,
                     //send the preimage to the admin
                     var loop = async () => {
-                        var pending_htlc_exists = false;
                         var chan_id = state.opening_info_for_hedgehog_channels[ state.pubkey ][ 0 ].chan_id;
-                        console.log( 'checking if pending htlc exists:' );
-                        console.log( hedgehog.state[ chan_id ].pending_htlc );
-                        if ( hedgehog.state[ chan_id ].pending_htlc && hedgehog.state[ chan_id ].pending_htlc[ "htlc_hash" ] === hash ) {
+                        if ( Object.keys( hedgehog.state[ chan_id ].pending_htlc ).length && hedgehog.state[ chan_id ].pending_htlc[ "htlc_hash" ] === hash ) {
                             console.log( 'sending preimage to admin' );
                             node.send( 'hh_preimage', JSON.stringify({msg: {preimage, sender, state_id}}), recipient, msg_id );
                             return;
@@ -6245,6 +6262,7 @@
                             opening_info.forEach( opener => chan_ids.push( opener.chan_id ) );
                             var preimage = json.msg.preimage;
                             var bolt11 = null;
+                            var hedgehog_pmt_info = {}
                             var i; for ( i=0; i<chan_ids.length; i++ ) {
                                 var chan_id = chan_ids[ i ];
                                 var sigs_and_stuff = json.msg.sigs_and_stuff[ i ];
@@ -6257,12 +6275,19 @@
                                 //because resolving the htlc always results in me receiving more money
                                 //After considering it, I think I should abort if sigs_and_stuff contains an amount that differs from the amount in pending_htlc
                                 // console.log( 185, sigs_and_stuff.amnt );
-                                sigs_and_stuff.amnt = hedgehog.state[ chan_id ].balances[ 0 ] + hedgehog.state[ chan_id ].pending_htlc.amnt;
+                                // sigs_and_stuff.amnt = hedgehog.state[ chan_id ].balances[ 0 ] + hedgehog.state[ chan_id ].pending_htlc.amnt;
+                                sigs_and_stuff.amnt = hedgehog.state[ chan_id ].pending_htlc.amnt;
                                 sigs_and_stuff.chan_id = chan_id;
                                 // console.log( 186, hedgehog.state[ chan_id ].balances[ 0 ], hedgehog.state[ chan_id ].pending_htlc.amnt, sigs_and_stuff.amnt );
                                 var skip_pending_check = true;
                                 hedgehog.receive( sigs_and_stuff, skip_pending_check );
                                 if ( hedgehog.state[ chan_id ].pending_htlc.hasOwnProperty( "bolt11" ) ) bolt11 = hedgehog.state[ chan_id ].pending_htlc.bolt11;
+                                else {
+                                    hedgehog_pmt_info[ "htlc_hash" ] = hedgehog.state[ chan_id ].pending_htlc[ "htlc_hash" ];
+                                    console.log( JSON.parse( JSON.stringify( hedgehog.state[ chan_id ].pending_htlc ) ) );
+                                    console.log( 102, state.amount_alice_expects_in_next_htlc );
+                                    hedgehog_pmt_info[ "amount" ] = hedgehog.state[ chan_id ].pending_htlc[ "amnt" ];
+                                }
                                 hedgehog.state[ chan_id ].pending_htlc = {}
                                 //TODO: as soon as you resolve the htlc get Alice and Bob to both revoke their prior states
                             }
@@ -6283,10 +6308,25 @@
                                         preimage,
                                         detail_hidden: true,
                                     }
+                                } else {
+                                    console.log( hedgehog_pmt_info[ "amount" ] );
+                                    brick_wallet.state.history[ hedgehog_pmt_info[ "htlc_hash" ] ] = {
+                                        type: "incoming",
+                                        payment_hash: hedgehog_pmt_info[ "htlc_hash" ],
+                                        invoice: "none -- this was a hedghog payment",
+                                        bolt11: "none -- this was a hedghog payment",
+                                        description: "hedgehog payment",
+                                        settled_at: Math.floor( Date.now() / 1000 ),
+                                        fees_paid: 0,
+                                        amount: "unknown",
+                                        preimage,
+                                        detail_hidden: true,
+                                    }
                                 }
                                 modalVanish();
                                 var mybal = hedgehog.state[ hedgehog_factory.state[ state_id ].opening_info_for_hedgehog_channels[ hedgehog_factory.state[ state_id ].pubkey ][ 0 ].chan_id ].balances[ 0 ];
                                 balance.setState( () => balance.bal = mybal );
+                                brick_wallet.parseHistory();
                             }, 500 );
                             return;
                         }
