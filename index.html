@@ -680,6 +680,7 @@
                             hedgehog.state[ chan_id ].alices_revocation_hashes.push( old_rev_hashes );
                             hedgehog.state[ chan_id ].bob_can_revoke.push( other_rev_info );
                         }
+                        console.log( 22, 'this one' );
                         if ( !skip_alert ) {return alert( `Your counterparty sent you invalid main-sig data so it will be ignored` );}
                         else return;
                     }
@@ -1477,6 +1478,7 @@
                                 hedgehog.state[ chid ].alices_revocation_hashes.push( old_rev_hashes );
                                 hedgehog.state[ chid ].bob_can_revoke.push( other_rev_info );
                             }
+                            console.log( 23, 'this one' );
                             return alert( `Your counterparty sent you invalid main-sig data so it will be ignored` );
                         }
 
@@ -1617,6 +1619,7 @@
                                 hedgehog.state[ chid ].alices_revocation_hashes.push( old_rev_hashes );
                                 hedgehog.state[ chid ].bob_can_revoke.push( other_rev_info );
                             }
+                            console.log( 24, 'this one' );
                             return alert( `Your counterparty sent you invalid main-sig data so it will be ignored` );
                         }
 
@@ -3115,7 +3118,7 @@
                                 hedgehog.state[ chid ].alices_revocation_hashes.push( old_rev_hashes );
                                 hedgehog.state[ chid ].bob_can_revoke.push( other_rev_info );
                             }
-                            // console.log( 84, 'this one' );
+                            console.log( 25, 'this one' );
                             return alert( `Your counterparty sent you invalid main-sig data so it will be ignored` );
                         }
 
@@ -3508,6 +3511,7 @@
                             from: "bob",
                             now: Math.floor( Date.now() / 1000 ),
                             amnt,
+                            amnt_to_display: amnt_before_any_changes,
                             htlc_preimage: null,
                             htlc_hash,
                             force_close_tx: tapscript.Tx.encode( tx0 ).hex,
@@ -6286,7 +6290,7 @@
                                     hedgehog_pmt_info[ "htlc_hash" ] = hedgehog.state[ chan_id ].pending_htlc[ "htlc_hash" ];
                                     console.log( JSON.parse( JSON.stringify( hedgehog.state[ chan_id ].pending_htlc ) ) );
                                     console.log( 102, state.amount_alice_expects_in_next_htlc );
-                                    hedgehog_pmt_info[ "amount" ] = hedgehog.state[ chan_id ].pending_htlc[ "amnt" ];
+                                    hedgehog_pmt_info[ "amount" ] = hedgehog.state[ chan_id ].pending_htlc[ "amnt_to_display" ];
                                 }
                                 hedgehog.state[ chan_id ].pending_htlc = {}
                                 //TODO: as soon as you resolve the htlc get Alice and Bob to both revoke their prior states
@@ -6318,7 +6322,7 @@
                                         description: "hedgehog payment",
                                         settled_at: Math.floor( Date.now() / 1000 ),
                                         fees_paid: 0,
-                                        amount: "unknown",
+                                        amount: hedgehog_pmt_info[ "amount" ] * 1000,
                                         preimage,
                                         detail_hidden: true,
                                     }
