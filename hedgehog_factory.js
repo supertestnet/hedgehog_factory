@@ -1193,10 +1193,12 @@ var hedgehog_factory = {
             hedgehog_factory.state[ state_id ].current_round = round;
             hedgehog_factory.ejectUser( hedgehog_factory.state[ state_id ].all_peers.indexOf( hedgehog_factory.state[ state_id ].pubkey ), state_id, false );
         }
+        var funding_tx = state.funding_tx;
+        var funding_txid = tapscript.Tx.util.getTxid( funding_tx );
         var loop = async () => {
             try {
                 await hedgehog_factory.waitSomeTime( 10_000 );
-                var data = await fetch( `https://mempool.space/testnet4/api/tx/9441ecf6b7d92ef366a76114f8209e7cde35848317790326f884d58ebe83d99f` );
+                var data = await fetch( `https://mempool.space/${allover_network}/api/tx/${funding_txid}` );
                 var json = await data.json();
                 var is_confirmed = json.status.hasOwnProperty( "confirmed" ) && json.status[ "confirmed" ];
                 if ( !is_confirmed ) return loop();
