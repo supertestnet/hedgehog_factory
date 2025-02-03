@@ -192,7 +192,7 @@ var hedgehog_factory = {
             hedgehog_factory.setSigningTimer( randomized_peers, state_id, utxos_for_protocol, sats_per_byte, change_address );
             var node = state.node;
             var msg_id = state_id;
-            if ( randomized_peers.length < state.minimum ) return alert( `abort because too few people were honest` );
+            if ( randomized_peers.length < state.minimum ) return alert( `abort because too few people were honest -- ${randomized_peers.length} were honest and the minimum is ${state.minimum}` );
             else node.relay( 'signing_phase', msg, randomized_peers, msg_id );
             showPage( 'view_signers' );
             hedgehog_factory.startSigning( msg, state_id );
@@ -260,7 +260,7 @@ var hedgehog_factory = {
                 hedgehog_factory.setSigningTimer( randomized_peers, state_id, utxos_for_protocol, sats_per_byte, change_address );
                 var node = state.node;
                 var msg_id = state_id;
-                if ( randomized_peers.length < state.minimum ) return alert( `abort because too few people were honest` );
+                if ( randomized_peers.length < state.minimum ) return alert( `abort because too few people were honest -- ${randomized_peers.length} were honest and the minimum is ${state.minimum}` );
                 else node.relay( 'signing_phase', msg, randomized_peers, msg_id );
                 hedgehog_factory.startSigning( msg, state_id );
                 return;
