@@ -656,6 +656,7 @@ var hedgehog = {
         var sig_3 = data[ "sig_3" ];
         var sighash_3 = tapscript.Signer.taproot.hash( tx1, 0, { extension: tx1_target }).hex;
         var is_valid_3 = await nobleSecp256k1.schnorr.verify( sig_3, sighash_3, pubkey_to_validate_against );
+        console.log( is_valid_1, is_valid_3 );
         if ( !is_valid_1 || !is_valid_3 ) {
             //restore old state and inform user this state update was invalid
             if ( am_alice ) {
