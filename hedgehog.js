@@ -1126,7 +1126,7 @@ var hedgehog = {
                     if ( amnt_for_alice ) new_second_from_htlc_tx.vout.push( hedgehog.getVout( amnt_for_alice, alices_address ) );
                     if ( amnt_for_bob ) new_second_from_htlc_tx.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
                 }
-                new_second_from_htlc.vout.push({ value: 240, scriptPubKey: "51024e73" });
+                new_second_from_htlc_tx.vout.push({ value: 240, scriptPubKey: "51024e73" });
                 new_second_from_htlc_txs.push( new_second_from_htlc_tx );
                 var new_tx1_script = prev_scripts[ 0 ];
                 var new_tx1_target = tapscript.Tap.encodeScript( new_tx1_script );
@@ -1484,7 +1484,7 @@ var hedgehog = {
                 if ( amnt_for_alice ) second_from_htlc_tx.vout.push( hedgehog.getVout( amnt_for_alice, alices_address ) );
                 if ( amnt_for_bob ) second_from_htlc_tx.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
             }
-            second_from_htlc.vout.push({ value: 240, scriptPubKey: "51024e73" });
+            second_from_htlc_tx.vout.push({ value: 240, scriptPubKey: "51024e73" });
             second_from_htlc_txs.push( second_from_htlc_tx );
 
             //validate the signatures by which the sender creates the new state
@@ -1587,7 +1587,7 @@ var hedgehog = {
                     if ( amnt_for_alice ) new_second_from_htlc_tx.vout.push( hedgehog.getVout( amnt_for_alice, alices_address ) );
                     if ( amnt_for_bob ) new_second_from_htlc_tx.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
                 }
-                new_second_from_htlc.vout.push({ value: 240, scriptPubKey: "51024e73" });
+                new_second_from_htlc_tx.vout.push({ value: 240, scriptPubKey: "51024e73" });
                 new_second_from_htlc_txs.push( new_second_from_htlc_tx );
                 var alices_conditional_first_htlc_sig = alices_conditional_first_htlc_sigs[ k ];
                 var conditional_htlc_1_sighash = tapscript.Signer.taproot.hash( new_first_from_htlc_tx, 0, { extension: first_htlc_target }).hex;
