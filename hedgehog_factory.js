@@ -1191,7 +1191,7 @@ var hedgehog_factory = {
         var txhex = tapscript.Tx.encode( funding_tx ).hex;
         // console.log( 'broadcast this:' );
         // console.log( txhex );
-        pushBTCpmt( txhex, mempool_network );
+        hedgehog_factory.pushBTCpmt( txhex, mempool_network );
         state.signing_finished = true;
         var funding_inputs_sum = 0;
         var funding_outputs_sum = 0;
