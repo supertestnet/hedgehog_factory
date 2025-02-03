@@ -607,7 +607,10 @@ var hedgehog = {
         var tx0 = tapscript.Tx.create({
             version: 3,
             vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chan_id ][ "multisig" ] )],
-            vout: [hedgehog.getVout( original_amnt - 240, revocable_address )],
+            vout: [
+                hedgehog.getVout( original_amnt - 240, revocable_address ),
+                {value: 240, scriptPubKey: "51024e73"},
+            ],
         });
         var tx0_id = tapscript.Tx.util.getTxid( tx0 );
 
