@@ -1193,6 +1193,20 @@ var hedgehog_factory = {
             hedgehog_factory.state[ state_id ].current_round = round;
             hedgehog_factory.ejectUser( hedgehog_factory.state[ state_id ].all_peers.indexOf( hedgehog_factory.state[ state_id ].pubkey ), state_id, false );
         }
+        var loop = async () => {
+            try {
+                await hedgehog_factory.waitSomeTime( 10_000 );
+                var data = await fetch( `https://mempool.space/testnet4/api/tx/9441ecf6b7d92ef366a76114f8209e7cde35848317790326f884d58ebe83d99f` );
+                var json = await data.json();
+                var is_confirmed = json.status.hasOwnProperty( "confirmed" ) && json.status[ "confirmed" ];
+                if ( !is_confirmed ) return loop();
+            } catch ( e ) {
+                return loop();
+            }
+        }
+        await loop();
+        $( '.warning_div' ).style.backgroundColor = "green";
+        $( '.warning_div' ).innerHTML = `Your channel confirmed and it is safe to deposit money into it. <button onclick='$( ".warning_div" ).classList.add( "hidden" );'>Remove this message</button>`;
     },
     runGetRevData: async ( msg, state_id ) => {
         var json = JSON.parse( msg.dat );
@@ -1604,4 +1618,28 @@ var hedgehog_factory = {
         console.log( 'broadcast this:' );
         console.log( txhex );
     },
+    cancelDeposit: async ( state_id, txid, vout, amnt_sent ) => {
+        if ( !amnt_prepared ) return alert( 'you forgot to say what amount you sent' );
+        var destino = prompt( `enter the address where you want to send the money` );
+        var state = hedgehog_factory.state[ state_id ];
+        var tx = tapscript.Tx.create({
+            vin: [{
+                txid,
+                vout,
+                prevout: {
+                    value: amnt_prepared,
+                    scriptPubKey: [ 1, state.pubkey ],
+                }
+            }],
+            vout: [{
+                value: 402750 - 500,
+                scriptPubKey: tapscript.Address.toScriptPubKey( destino ),
+            }],
+        });
+        var sig = tapscript.Signer.taproot.sign( state.privkey, tx, 0 ).hex;
+        tx.vin[ 0 ].witness = [ sig ];
+        var txhex = tapscript.Tx.encode( tx ).hex;
+        console.log( 'broadcast this:' );
+        console.log( txhex );
+    }
 }
