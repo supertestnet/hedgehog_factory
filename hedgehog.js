@@ -1,5 +1,5 @@
 var hedgehog = {
-    network: allover_network,
+    network: allover_address_type,
     state: {},
     keypairs: {},
     state_obj: {
