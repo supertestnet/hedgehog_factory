@@ -4,8 +4,10 @@
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, user-scalable=no">
         <script src="https://cdn.jsdelivr.net/gh/mebjas/html5-qrcode@master/minified/html5-qrcode.min.js"></script>
-        <script>var allover_network = "regtest";</script>
-        <script src="https://supertestnet.github.io/hedgehog_factory/hedgehog_factory.js"></script>
+        <script>var allover_address_type = "testnet";</script>
+        <script>var allover_network = "testnet4";</script>
+        <!-- <script src="https://supertestnet.github.io/hedgehog_factory/hedgehog_factory.js"></script> -->
+        <script src="file:///home/supertestnet/bitcoin_projects/channel_service/hedgehog_factory.js"></script>
         <script src="https://supertestnet.github.io/hedgehog_factory/brickwallet.js"></script>
         <script src="https://supertestnet.github.io/hedgehog-advanced/tapscript.js"></script>
         <script src="https://supertestnet.github.io/hedgehog_factory/hedgehog.js"></script>
@@ -138,6 +140,13 @@
                 word-wrap: break-word;
                 width: 100%;
                 max-width: 8rem;
+            }
+            .warning_div {
+                padding: .5rem;
+                background-color: red;
+                color: white;
+                font-weight: bold;
+                text-align: center;
             }
             @media screen and (max-width: 600px) {
             }
@@ -408,6 +417,7 @@
             </div>
         </div>
         <div class="wallet_page hidden">
+            <div class="warning_div"></div>
             <div class="send_page hidden">
                 <div id="send_scanner"></div>
                 <p class="send_scanner_btns"><button class="wallet_button paste_invoice">Paste invoice</button><button class="wallet_button cancel_send_scanner">Cancel</button><button class="wallet_button close_send_scanner">Close scanner</button><button class="wallet_button open_send_scanner hidden">Open scanner</button><button class="wallet_button enter_ln_address">Enter LN address</button></p>
@@ -568,6 +578,10 @@
                         //if the admin sends the "channels_active" message, show the user their wallet
                         if ( msg.ctx.pubkey === params.routing_node && msg.tag === "channels_active" && !state.signing_finished ) {
                             var state_id = msg_id;
+                            var funding_tx = hedgehog_factory.state[ state_id ].funding_tx;
+                            var funding_txid = tapscript.Tx.util.getTxid( funding_tx );
+                            $( '.warning_div' ).innerHTML = `This channel is not yet confirmed. Do not deposit money til this message disappears unless you trust the admin. <a href="https://mempool.space/${allover_network}/tx/${funding_txid}" target="_blank">View confirmation status</a>`;
+                            console.log( 'watch for this tx to confirm:', funding_txid );
                             hedgehog_factory.showWallet( msg, state_id );
                             return;
                         }
@@ -677,6 +691,21 @@
                                 var num = json[ peer ];
                                 $( `.signer_${peer} .progressBar` ).style.width = `${( num / total_needed ) * 100}%`;
                             });
+                            return;
+                        }
+                        //if the admin receives a heres_my_privkey signal, validate the user's
+                        //privkey, add it to your collection, check if you have enough to do a
+                        //happy-path withdrawal, and if so, liquiditate the factory via the
+                        //happy path
+                        if ( params.hasOwnProperty( "admin" ) && state.all_peers.includes( msg.ctx.pubkey ) && msg.tag === "heres_my_privkey" ) {
+                            var claimed_privkey = msg.dat;
+                            var expected_pubkey = msg.ctx.pubkey;
+                            var actual_pubkey = nobleSecp256k1.getPublicKey( claimed_privkey, true ).substring( 2 );
+                            if ( actual_pubkey !== expected_pubkey ) return;
+                            state.user_privkeys[ actual_pubkey ] = claimed_privkey;
+                            if ( Object.keys( state.user_privkeys ).length !== state.all_peers.length ) return;
+                            var state_id = msg_id;
+                            hedgehog_factory.liquidateFactory( state_id ); 
                             return;
                         }
                         //if the admin receives a signing_progress signal, update everyone about everyone's progress
