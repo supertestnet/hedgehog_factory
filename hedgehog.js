@@ -438,7 +438,7 @@ var hedgehog = {
         }
         tx1.vout.push({ value: 240, scriptPubKey: "51024e73" });
         // console.log( 87, JSON.stringify( tx1 ) );
-        console.log( 69, "tx0:", JSON.stringify( tx0 ) );
+        // console.log( 69, "tx0:", JSON.stringify( tx0 ) );
         // console.log( 70, "tx1:", JSON.stringify( tx1 ) );
 
         //Sign both of these transactions, but sign tx1 with a sig that
@@ -641,7 +641,7 @@ var hedgehog = {
         }
         tx1.vout.push({ value: 240, scriptPubKey: "51024e73" });
         // console.log( 88, JSON.stringify( tx1 ) );
-        console.log( 89, "tx0:", JSON.stringify( tx0 ) );
+        // console.log( 89, "tx0:", JSON.stringify( tx0 ) );
         // console.log( 90, "tx1:", JSON.stringify( tx1 ) );
 
         //validate the signatures by which the sender creates the new state
@@ -659,7 +659,6 @@ var hedgehog = {
         var sig_3 = data[ "sig_3" ];
         var sighash_3 = tapscript.Signer.taproot.hash( tx1, 0, { extension: tx1_target }).hex;
         var is_valid_3 = await nobleSecp256k1.schnorr.verify( sig_3, sighash_3, pubkey_to_validate_against );
-        console.log( is_valid_1, is_valid_3 );
         if ( !is_valid_1 || !is_valid_3 ) {
             //restore old state and inform user this state update was invalid
             if ( am_alice ) {
@@ -737,6 +736,7 @@ var hedgehog = {
                     hedgehog.state[ chan_id ].alices_revocation_hashes.push( old_rev_hashes );
                     hedgehog.state[ chan_id ].bob_can_revoke.push( other_rev_info );
                 }
+                console.log( 11, 'this one' );
                 if ( !skip_alert ) {return alert( `Your counterparty sent you invalid cond-sig data (invalid sig) so it will be ignored` );}
                 else return;
             }
@@ -1605,6 +1605,7 @@ var hedgehog = {
                         hedgehog.state[ chid ].alices_revocation_hashes.push( old_rev_hashes );
                         hedgehog.state[ chid ].bob_can_revoke.push( other_rev_info );
                     }
+                    console.log( 12, 'this one' );
                     return alert( `Your counterparty sent you invalid cond-sig data (invalid sig) so it will be ignored` );
                 }
             }
@@ -1718,6 +1719,7 @@ var hedgehog = {
                         hedgehog.state[ chid ].alices_revocation_hashes.push( old_rev_hashes );
                         hedgehog.state[ chid ].bob_can_revoke.push( other_rev_info );
                     }
+                    console.log( 13, 'this one' );
                     return alert( `Your counterparty sent you invalid cond-sig data (invalid sig) so it will be ignored` );
                 }
                 var conditional_cosignature = tapscript.Signer.taproot.sign( privkey, new_tx1, 0, { extension: new_tx1_target }).hex;
@@ -3415,6 +3417,7 @@ var hedgehog = {
                         hedgehog.state[ chid ].alices_revocation_hashes.push( old_rev_hashes );
                         hedgehog.state[ chid ].bob_can_revoke.push( other_rev_info );
                     }
+                    console.log( 14, 'this one' );
                     return alert( `Your counterparty sent you invalid cond-sig data (invalid sig) so it will be ignored` );
                 }
             }
@@ -3538,6 +3541,7 @@ var hedgehog = {
                         hedgehog.state[ chid ].alices_revocation_hashes.push( old_rev_hashes );
                         hedgehog.state[ chid ].bob_can_revoke.push( other_rev_info );
                     }
+                    console.log( 15, 'this one' );
                     return alert( `Your counterparty sent you invalid cond-sig data (invalid sig) so it will be ignored` );
                 }
                 var conditional_cosignature = tapscript.Signer.taproot.sign( privkey, new_tx1, 0, { extension: new_tx1_target }).hex;
