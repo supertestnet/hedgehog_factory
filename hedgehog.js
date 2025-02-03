@@ -2251,7 +2251,7 @@ var hedgehog = {
                 vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 240 - 240, htlc_address, 5 )],
                 vout: [
                     hedgehog.getVout( original_amnt - 240 - 240 - 240, revocation_address ),
-                    {value: 240, scriptPubKey: "51024e73"}.
+                    {value: 240, scriptPubKey: "51024e73"},
                 ],
             });
             second_from_htlc_txs.push( second_from_htlc_tx );
