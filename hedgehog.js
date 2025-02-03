@@ -2416,6 +2416,7 @@ var hedgehog = {
                         {value: 240, scriptPubKey: "51024e73"},
                     ],
                 });
+                console.log( 18, new_first_from_htlc_tx );
                 new_first_from_htlc_txs.push( new_first_from_htlc_tx );
                 var new_first_from_htlc_txid = tapscript.Tx.util.getTxid( new_first_from_htlc_tx );
                 var new_from_revo_tx_1 = tapscript.Tx.create({
@@ -3326,6 +3327,7 @@ var hedgehog = {
                         {value: 240, scriptPubKey: "51024e73"},
                     ],
                 });
+                console.log( 19, new_first_from_htlc_tx );
                 new_first_from_htlc_txs.push( first_from_htlc_tx );
                 var new_first_from_htlc_txid = tapscript.Tx.util.getTxid( new_first_from_htlc_tx );
                 var new_from_revo_tx_1 = tapscript.Tx.create({
