@@ -165,7 +165,7 @@ var hedgehog = {
                 var opening = true;
 
                 //validate the initial state using the regular "receive" function
-                var opened = await hedgehog.receive( {amnt: amnt - 500 - 500, sig_1: data[ "sig_1" ], sig_3: data[ "sig_3" ], chan_id: data[ "chan_id" ], hash: data[ "hash" ]}, null, skip_alert );
+                var opened = await hedgehog.receive( {amnt: amnt - 240 - 240, sig_1: data[ "sig_1" ], sig_3: data[ "sig_3" ], chan_id: data[ "chan_id" ], hash: data[ "hash" ]}, null, skip_alert );
                 if ( opened !== true ) return;
 
                 //update the state to reflect Bob's ability to withdraw 100%
@@ -273,7 +273,7 @@ var hedgehog = {
 
             //prepare the transaction that moves all funds to Bob's side
             var opening = true;
-            var sigs_and_stuff = hedgehog.send( chan_id, amnt - 500 - 500, opening );
+            var sigs_and_stuff = hedgehog.send( chan_id, amnt - 240 - 240, opening );
             sigs_and_stuff[ "amnt" ] = amnt;
 
             //update the state to reflect Bob's ability to withdraw 100%
@@ -309,7 +309,7 @@ var hedgehog = {
 
         //prepare the transaction that moves all funds to Bob's side
         var opening = true;
-        var sigs_and_stuff = hedgehog.send( chan_id, amnt - 500 - 500, opening );
+        var sigs_and_stuff = hedgehog.send( chan_id, amnt - 240 - 240, opening );
         sigs_and_stuff[ "amnt" ] = amnt;
         console.log( "send this data to your recipient:" );
         console.log( JSON.stringify( sigs_and_stuff ) );
@@ -379,8 +379,12 @@ var hedgehog = {
         //tx0 sends all the money from the multisig into alice_can_revoke
         //or bob_can_revoke (depending on who is sending)
         var tx0 = tapscript.Tx.create({
+            version: 3,
             vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chan_id ][ "multisig" ] )],
-            vout: [hedgehog.getVout( original_amnt - 500, revocable_address )],
+            vout: [
+                hedgehog.getVout( original_amnt - 240, revocable_address ),
+                {value: 240, scriptPubKey: "51024e73"},
+            ],
         });
         var tx0_id = tapscript.Tx.util.getTxid( tx0 );
         var alices_address = hedgehog.state[ chan_id ].alices_address;
@@ -389,8 +393,9 @@ var hedgehog = {
         else var my_address = bobs_address;
         var timeout_tx = tapscript.Tx.create({
             //TODO: change the sequence number (relative timelock) from 10 to 4032
-            vin: [hedgehog.getVin( tx0_id, 0, original_amnt - 500, revocable_address, 10 )],
-            vout: [hedgehog.getVout( original_amnt - 500 - 500, my_address )],
+            version: 3,
+            vin: [hedgehog.getVin( tx0_id, 0, original_amnt - 240, revocable_address, 10 )],
+            vout: [hedgehog.getVout( original_amnt - 240 - 240, my_address )],
         });
         if ( am_alice ) var privkey = hedgehog.state[ chan_id ].alices_privkey;
         else var privkey = hedgehog.state[ chan_id ].bobs_privkey;
@@ -407,18 +412,19 @@ var hedgehog = {
         //create tx1 to distribute the funds however the sender wishes to do so
         var tx1 = tapscript.Tx.create({
             //TODO: change the sequence number (relative timelock) from 5 to 2016
-            vin: [hedgehog.getVin( tx0_id, 0, original_amnt - 500, revocable_address, 5 )],
+            version: 3,
+            vin: [hedgehog.getVin( tx0_id, 0, original_amnt - 240, revocable_address, 5 )],
             vout: [],
         });
 
         //increase the recipient's balance by amnt and decrease the sender's by
         //amnt and two mining fees
         if ( am_alice ) {
-            var amnt_for_alice = balances[ 0 ] - amnt - 500 - 500;
+            var amnt_for_alice = balances[ 0 ] - amnt - 240 - 240;
             var amnt_for_bob = balances[ 1 ] + amnt;
         } else {
             var amnt_for_alice = balances[ 0 ] + amnt;
-            var amnt_for_bob = balances[ 1 ] - amnt - 500 - 500;
+            var amnt_for_bob = balances[ 1 ] - amnt - 240 - 240;
             if ( opening ) var amnt_for_bob = 0;
         }
         if ( am_alice ) {
@@ -428,6 +434,7 @@ var hedgehog = {
             if ( amnt_for_alice ) tx1.vout.push( hedgehog.getVout( amnt_for_alice, alices_address ) );
             if ( amnt_for_bob ) tx1.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
         }
+        tx1.vout.push({ value: 240, scriptPubKey: "51024e73" });
         // console.log( 87, JSON.stringify( tx1 ) );
         // console.log( 69, "tx0:", JSON.stringify( tx0 ) );
         // console.log( 70, "tx1:", JSON.stringify( tx1 ) );
@@ -456,12 +463,17 @@ var hedgehog = {
             if ( am_alice ) var prev_scripts = hedgehog.state[ chan_id ].alice_can_revoke[ hedgehog.state[ chan_id ].alice_can_revoke.length - 1 ][ 1 ];
             else var prev_scripts = hedgehog.state[ chan_id ].bob_can_revoke[ hedgehog.state[ chan_id ].bob_can_revoke.length - 1 ][ 1 ];
             var prev_tx0 = tapscript.Tx.create({
+                version: 3,
                 vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chan_id ][ "multisig" ] )],
-                vout: [hedgehog.getVout( original_amnt - 500, prev_address )],
+                vout: [
+                    hedgehog.getVout( original_amnt - 240, prev_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
+                ],
             });
             var prev_txid = tapscript.Tx.util.getTxid( prev_tx0 );
             var new_tx1 = tapscript.Tx.create({
-                vin: [hedgehog.getVin( prev_txid, 0, original_amnt - 500, prev_address )],
+                version: 3,
+                vin: [hedgehog.getVin( prev_txid, 0, original_amnt - 240, prev_address )],
                 vout: [],
             });
             if ( am_alice ) {
@@ -471,6 +483,7 @@ var hedgehog = {
                 if ( amnt_for_alice ) new_tx1.vout.push( hedgehog.getVout( amnt_for_alice, alices_address ) );
                 if ( amnt_for_bob ) new_tx1.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
             }
+            new_tx1.vout.push({ value: 240, scriptPubKey: "51024e73" });
             var new_tx1_script = prev_scripts[ 0 ];
             var new_tx1_target = tapscript.Tap.encodeScript( new_tx1_script );
             var new_tx1_tree = prev_scripts.map( s => tapscript.Tap.encodeScript( s ) );
@@ -590,15 +603,17 @@ var hedgehog = {
         var bobs_address = hedgehog.state[ chan_id ].bobs_address;
         var original_amnt = balances[ 0 ] + balances[ 1 ];
         var tx0 = tapscript.Tx.create({
+            version: 3,
             vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chan_id ][ "multisig" ] )],
-            vout: [hedgehog.getVout( original_amnt - 500, revocable_address )],
+            vout: [hedgehog.getVout( original_amnt - 240, revocable_address )],
         });
         var tx0_id = tapscript.Tx.util.getTxid( tx0 );
 
         //create tx1 to distribute the funds however the sender wishes to do so
         var tx1 = tapscript.Tx.create({
+            version: 3,
             //TODO: change the sequence number (relative timelock) from 5 to 2016
-            vin: [hedgehog.getVin( tx0_id, 0, original_amnt - 500, revocable_address, 5 )],
+            vin: [hedgehog.getVin( tx0_id, 0, original_amnt - 240, revocable_address, 5 )],
             vout: [],
         });
 
@@ -606,10 +621,10 @@ var hedgehog = {
         //amnt and two mining fees
         if ( am_alice ) {
             var amnt_for_alice = balances[ 0 ] + amnt;
-            var amnt_for_bob = balances[ 1 ] - amnt - 500 - 500;
+            var amnt_for_bob = balances[ 1 ] - amnt - 240 - 240;
             if ( data_was_here_originally && !skip_pending_check ) var amnt_for_bob = 0;
         } else {
-            var amnt_for_alice = balances[ 0 ] - amnt - 500 - 500;
+            var amnt_for_alice = balances[ 0 ] - amnt - 240 - 240;
             var amnt_for_bob = balances[ 1 ] + amnt;
         }
         if ( am_alice ) {
@@ -619,6 +634,7 @@ var hedgehog = {
             if ( amnt_for_alice ) tx1.vout.push( hedgehog.getVout( amnt_for_alice, alices_address ) );
             if ( amnt_for_bob ) tx1.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
         }
+        tx1.vout.push({ value: 240, scriptPubKey: "51024e73" });
         // console.log( 88, JSON.stringify( tx1 ) );
         // console.log( 89, "tx0:", JSON.stringify( tx0 ) );
         // console.log( 90, "tx1:", JSON.stringify( tx1 ) );
@@ -682,12 +698,14 @@ var hedgehog = {
             if ( am_alice ) var prev_scripts = hedgehog.state[ chan_id ].bob_can_revoke[ hedgehog.state[ chan_id ].bob_can_revoke.length - 1 ][ 1 ];
             else var prev_scripts = hedgehog.state[ chan_id ].alice_can_revoke[ hedgehog.state[ chan_id ].alice_can_revoke.length - 1 ][ 1 ];
             var prev_tx0 = tapscript.Tx.create({
+                version: 3,
                 vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chan_id ][ "multisig" ] )],
-                vout: [hedgehog.getVout( original_amnt - 500, prev_address )],
+                vout: [hedgehog.getVout( original_amnt - 240, prev_address )],
             });
             var prev_txid = tapscript.Tx.util.getTxid( prev_tx0 );
             var new_tx1 = tapscript.Tx.create({
-                vin: [hedgehog.getVin( prev_txid, 0, original_amnt - 500, prev_address )],
+                version: 3,
+                vin: [hedgehog.getVin( prev_txid, 0, original_amnt - 240, prev_address )],
                 vout: [],
             });
             if ( am_alice ) {
@@ -697,6 +715,7 @@ var hedgehog = {
                 if ( amnt_for_alice ) new_tx1.vout.push( hedgehog.getVout( amnt_for_alice, alices_address ) );
                 if ( amnt_for_bob ) new_tx1.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
             }
+            new_tx1.vout.push({ value: 240, scriptPubKey: "51024e73" });
             var new_tx1_script = prev_scripts[ 0 ];
             var new_tx1_target = tapscript.Tap.encodeScript( new_tx1_script );
             var new_tx1_tree = prev_scripts.map( s => tapscript.Tap.encodeScript( s ) );
@@ -757,15 +776,20 @@ var hedgehog = {
                 else return;
             }
             var prev_tx0 = tapscript.Tx.create({
+                version: 3,
                 vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chan_id ][ "multisig" ] )],
-                vout: [hedgehog.getVout( original_amnt - 500, prev_address )],
+                vout: [hedgehog.getVout( original_amnt - 240, prev_address )],
             });
             var doubly_prev_txid = tapscript.Tx.util.getTxid( prev_tx0 );
             if ( am_alice ) var my_address = alices_address;
             else var my_address = bobs_address;
             var tx2 = tapscript.Tx.create({
-                vin: [hedgehog.getVin( doubly_prev_txid, 0, original_amnt - 500, prev_address )],
-                vout: [hedgehog.getVout( original_amnt - 500 - 500, my_address )],
+                version: 3,
+                vin: [hedgehog.getVin( doubly_prev_txid, 0, original_amnt - 240, prev_address )],
+                vout: [
+                    hedgehog.getVout( original_amnt - 240 - 240, my_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
+                ],
             });
             var tx2_script = prev_scripts[ 1 ];
             var tx2_target = tapscript.Tap.encodeScript( tx2_script );
@@ -921,8 +945,12 @@ var hedgehog = {
             //tx0 sends all the money from the multisig into alice_can_revoke
             //or bob_can_revoke (depending on who is sending)
             var tx0 = tapscript.Tx.create({
+                version: 3,
                 vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chid ][ "multisig" ] )],
-                vout: [hedgehog.getVout( original_amnt - 500, revocable_address )],
+                vout: [
+                    hedgehog.getVout( original_amnt - 240, revocable_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
+                ],
             });
             tx0s.push( tx0 );
             var tx0_id = tapscript.Tx.util.getTxid( tx0 );
@@ -932,8 +960,12 @@ var hedgehog = {
             else var my_address = bobs_address;
             var timeout_tx = tapscript.Tx.create({
                 //TODO: change the sequence number (relative timelock) from 10 to 4032
-                vin: [hedgehog.getVin( tx0_id, 0, original_amnt - 500, revocable_address, 10 )],
-                vout: [hedgehog.getVout( original_amnt - 500 - 500, my_address )],
+                version: 3,
+                vin: [hedgehog.getVin( tx0_id, 0, original_amnt - 240, revocable_address, 10 )],
+                vout: [
+                    hedgehog.getVout( original_amnt - 240 - 240, my_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
+                ],
             });
             if ( am_alice ) var privkey = hedgehog.state[ chid ].alices_privkey;
             else var privkey = hedgehog.state[ chid ].bobs_privkey;
@@ -961,8 +993,12 @@ var hedgehog = {
                 //and we want the sum of that timelock plus this one (2026+1996) to be
                 //10 blocks less than 4032, that way the operator can't be stolen from
                 //on the grounds that he disappeared
-                vin: [hedgehog.getVin( tx0_id, 0, original_amnt - 500, revocable_address, 5 )],
-                vout: [hedgehog.getVout( original_amnt - 500 - 500, htlc_address )],
+                version: 3,
+                vin: [hedgehog.getVin( tx0_id, 0, original_amnt - 240, revocable_address, 5 )],
+                vout: [
+                    hedgehog.getVout( original_amnt - 240 - 240, htlc_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
+                ],
             });
             tx1s.push( tx1 );
             var tx1_txid = tapscript.Tx.util.getTxid( tx1 );
@@ -970,21 +1006,24 @@ var hedgehog = {
             //create first_from_htlc_tx to disperse the funds from the htlc to the new state if
             //Bob discloses his knowledge of the preimage
             var first_from_htlc_tx = tapscript.Tx.create({
-                vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 500 - 500, htlc_address )],
+                version: 3,
+                vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 240 - 240, htlc_address )],
                 vout: [
-                    hedgehog.getVout( balances[ 0 ] - 500 - 500 - 500 - amnt, alices_address ),
+                    hedgehog.getVout( balances[ 0 ] - 240 - 240 - 240 - amnt, alices_address ),
                     hedgehog.getVout( balances[ 1 ] + amnt, bobs_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
                 ],
             });
             first_from_htlc_txs.push( first_from_htlc_tx );
 
             //create second_from_htlc_tx to disperse the funds from the htlc to the current state
             //if Bob does not disclose his knowledge of the preimage in time
-            var amnt_for_alice = balances[ 0 ] - 500 - 500 - 500;
+            var amnt_for_alice = balances[ 0 ] - 240 - 240 - 240;
             var amnt_for_bob = balances[ 1 ];
             var second_from_htlc_tx = tapscript.Tx.create({
+                version: 3,
                 //TODO: change the sequence number (relative timelock) from 5 to 2026
-                vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 500 - 500, htlc_address, 5 )],
+                vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 240 - 240, htlc_address, 5 )],
                 vout: [],
             });
             if ( am_alice ) {
@@ -994,6 +1033,7 @@ var hedgehog = {
                 if ( amnt_for_alice ) second_from_htlc_tx.vout.push( hedgehog.getVout( amnt_for_alice, alices_address ) );
                 if ( amnt_for_bob ) second_from_htlc_tx.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
             }
+            second_from_htlc_tx.vout.push({ value: 240, scriptPubKey: "51024e73" });
             second_from_htlc_txs.push( second_from_htlc_tx );
 
             //Sign all of these transactions, but sign tx1 with a sig that
@@ -1035,28 +1075,39 @@ var hedgehog = {
                 if ( am_alice ) var prev_scripts = hedgehog.state[ chid ].alice_can_revoke[ hedgehog.state[ chid ].alice_can_revoke.length - 1 ][ 1 ];
                 else var prev_scripts = hedgehog.state[ chid ].bob_can_revoke[ hedgehog.state[ chid ].bob_can_revoke.length - 1 ][ 1 ];
                 var prev_tx0 = tapscript.Tx.create({
+                    version: 3,
                     vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chid ][ "multisig" ] )],
-                    vout: [hedgehog.getVout( original_amnt - 500, prev_address )],
+                    vout: [
+                        hedgehog.getVout( original_amnt - 240, prev_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 prev_tx0s.push( prev_tx0 );
                 var prev_txid = tapscript.Tx.util.getTxid( prev_tx0 );
                 var new_tx1 = tapscript.Tx.create({
-                    vin: [hedgehog.getVin( prev_txid, 0, original_amnt - 500, prev_address )],
-                    vout: [hedgehog.getVout( original_amnt - 500 - 500, htlc_address )],
+                    version: 3,
+                    vin: [hedgehog.getVin( prev_txid, 0, original_amnt - 240, prev_address )],
+                    vout: [
+                        hedgehog.getVout( original_amnt - 240 - 240, htlc_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 new_tx1s.push( new_tx1 );
                 var new_tx1_txid = tapscript.Tx.util.getTxid( new_tx1 );
                 var new_first_from_htlc_tx = tapscript.Tx.create({
-                    vin: [hedgehog.getVin( new_tx1_txid, 0, original_amnt - 500 - 500, htlc_address )],
+                    version: 3,
+                    vin: [hedgehog.getVin( new_tx1_txid, 0, original_amnt - 240 - 240, htlc_address )],
                     vout: [
-                        hedgehog.getVout( balances[ 0 ] - 500 - 500 - 500 - amnt, alices_address ),
+                        hedgehog.getVout( balances[ 0 ] - 240 - 240 - 240 - amnt, alices_address ),
                         hedgehog.getVout( balances[ 1 ] + amnt, bobs_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
                     ],
                 });
                 new_first_from_htlc_txs.push( new_first_from_htlc_tx );
                 var new_second_from_htlc_tx = tapscript.Tx.create({
                     //TODO: change the sequence number (relative timelock) from 5 to 2026
-                    vin: [hedgehog.getVin( new_tx1_txid, 0, original_amnt - 500 - 500, htlc_address, 5 )],
+                    version: 3,
+                    vin: [hedgehog.getVin( new_tx1_txid, 0, original_amnt - 240 - 240, htlc_address, 5 )],
                     vout: [],
                 });
                 if ( am_alice ) {
@@ -1066,6 +1117,7 @@ var hedgehog = {
                     if ( amnt_for_alice ) new_second_from_htlc_tx.vout.push( hedgehog.getVout( amnt_for_alice, alices_address ) );
                     if ( amnt_for_bob ) new_second_from_htlc_tx.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
                 }
+                new_second_from_htlc.vout.push({ value: 240, scriptPubKey: "51024e73" });
                 new_second_from_htlc_txs.push( new_second_from_htlc_tx );
                 var new_tx1_script = prev_scripts[ 0 ];
                 var new_tx1_target = tapscript.Tap.encodeScript( new_tx1_script );
@@ -1359,8 +1411,12 @@ var hedgehog = {
             var bobs_address = hedgehog.state[ chid ].bobs_address;
             var original_amnt = balances[ 0 ] + balances[ 1 ];
             var tx0 = tapscript.Tx.create({
+                version: 3,
                 vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chid ][ "multisig" ] )],
-                vout: [hedgehog.getVout( original_amnt - 500, revocable_address )],
+                vout: [
+                    hedgehog.getVout( original_amnt - 240, revocable_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
+                ],
             });
             tx0s.push( tx0 );
             var tx0_id = tapscript.Tx.util.getTxid( tx0 );
@@ -1379,8 +1435,12 @@ var hedgehog = {
                 //and we want the sum of that timelock plus this one (2026+1996) to be
                 //10 blocks less than 4032, that way the operator can't be stolen from
                 //on the grounds that he disappeared
-                vin: [hedgehog.getVin( tx0_id, 0, original_amnt - 500, revocable_address, 5 )],
-                vout: [hedgehog.getVout( original_amnt - 500 - 500, htlc_address )],
+                version: 3,
+                vin: [hedgehog.getVin( tx0_id, 0, original_amnt - 240, revocable_address, 5 )],
+                vout: [
+                    hedgehog.getVout( original_amnt - 240 - 240, htlc_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
+                ],
             });
             tx1s.push( tx1 );
             var tx1_txid = tapscript.Tx.util.getTxid( tx1 );
@@ -1388,21 +1448,24 @@ var hedgehog = {
             //create first_from_htlc_tx to disperse the funds from the htlc to the new state if
             //Bob discloses his knowledge of the preimage
             var first_from_htlc_tx = tapscript.Tx.create({
-                vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 500 - 500, htlc_address )],
+                version: 3,
+                vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 240 - 240, htlc_address )],
                 vout: [
-                    hedgehog.getVout( balances[ 0 ] - 500 - 500 - 500 - amnt, alices_address ),
+                    hedgehog.getVout( balances[ 0 ] - 240 - 240 - 240 - amnt, alices_address ),
                     hedgehog.getVout( balances[ 1 ] + amnt, bobs_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
                 ],
             });
             first_from_htlc_txs.push( first_from_htlc_tx );
 
             //create second_from_htlc_tx to disperse the funds from the htlc to the current state
             //if Bob does not disclose his knowledge of the preimage in time
-            var amnt_for_alice = balances[ 0 ] - 500 - 500 - 500;
+            var amnt_for_alice = balances[ 0 ] - 240 - 240 - 240;
             var amnt_for_bob = balances[ 1 ];
             var second_from_htlc_tx = tapscript.Tx.create({
+                version: 3,
                 //TODO: change the sequence number (relative timelock) from 5 to 2026
-                vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 500 - 500, htlc_address, 5 )],
+                vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 240 - 240, htlc_address, 5 )],
                 vout: [],
             });
             if ( am_alice ) {
@@ -1412,6 +1475,7 @@ var hedgehog = {
                 if ( amnt_for_alice ) second_from_htlc_tx.vout.push( hedgehog.getVout( amnt_for_alice, alices_address ) );
                 if ( amnt_for_bob ) second_from_htlc_tx.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
             }
+            second_from_htlc.vout.push({ value: 240, scriptPubKey: "51024e73" });
             second_from_htlc_txs.push( second_from_htlc_tx );
 
             //validate the signatures by which the sender creates the new state
@@ -1472,28 +1536,39 @@ var hedgehog = {
                 if ( am_alice ) var prev_scripts = hedgehog.state[ chid ].bob_can_revoke[ hedgehog.state[ chid ].bob_can_revoke.length - 1 ][ 1 ];
                 else var prev_scripts = hedgehog.state[ chid ].alice_can_revoke[ hedgehog.state[ chid ].alice_can_revoke.length - 1 ][ 1 ];
                 var prev_tx0 = tapscript.Tx.create({
+                    version: 3,
                     vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chid ][ "multisig" ] )],
-                    vout: [hedgehog.getVout( original_amnt - 500, prev_address )],
+                    vout: [
+                        hedgehog.getVout( original_amnt - 240, prev_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 prev_tx0s.push( prev_tx0 );
                 var prev_txid = tapscript.Tx.util.getTxid( prev_tx0 );
                 var new_tx1 = tapscript.Tx.create({
-                    vin: [hedgehog.getVin( prev_txid, 0, original_amnt - 500, prev_address )],
-                    vout: [hedgehog.getVout( original_amnt - 500 - 500, htlc_address )],
+                    version: 3,
+                    vin: [hedgehog.getVin( prev_txid, 0, original_amnt - 240, prev_address )],
+                    vout: [
+                        hedgehog.getVout( original_amnt - 240 - 240, htlc_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 new_tx1s.push( new_tx1 );
                 var new_tx1_txid = tapscript.Tx.util.getTxid( new_tx1 );
                 var new_first_from_htlc_tx = tapscript.Tx.create({
-                    vin: [hedgehog.getVin( new_tx1_txid, 0, original_amnt - 500 - 500, htlc_address )],
+                    version: 3,
+                    vin: [hedgehog.getVin( new_tx1_txid, 0, original_amnt - 240 - 240, htlc_address )],
                     vout: [
-                        hedgehog.getVout( balances[ 0 ] - 500 - 500 - 500 - amnt, alices_address ),
+                        hedgehog.getVout( balances[ 0 ] - 240 - 240 - 240 - amnt, alices_address ),
                         hedgehog.getVout( balances[ 1 ] + amnt, bobs_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
                     ],
                 });
                 new_first_from_htlc_txs.push( new_first_from_htlc_tx );
                 var new_second_from_htlc_tx = tapscript.Tx.create({
                     //TODO: change the sequence number (relative timelock) from 5 to 2026
-                    vin: [hedgehog.getVin( new_tx1_txid, 0, original_amnt - 500 - 500, htlc_address, 5 )],
+                    version: 3,
+                    vin: [hedgehog.getVin( new_tx1_txid, 0, original_amnt - 240 - 240, htlc_address, 5 )],
                     vout: [],
                 });
                 if ( am_alice ) {
@@ -1503,6 +1578,7 @@ var hedgehog = {
                     if ( amnt_for_alice ) new_second_from_htlc_tx.vout.push( hedgehog.getVout( amnt_for_alice, alices_address ) );
                     if ( amnt_for_bob ) new_second_from_htlc_tx.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
                 }
+                new_second_from_htlc.vout.push({ value: 240, scriptPubKey: "51024e73" });
                 new_second_from_htlc_txs.push( new_second_from_htlc_tx );
                 var alices_conditional_first_htlc_sig = alices_conditional_first_htlc_sigs[ k ];
                 var conditional_htlc_1_sighash = tapscript.Signer.taproot.hash( new_first_from_htlc_tx, 0, { extension: first_htlc_target }).hex;
@@ -1605,13 +1681,21 @@ var hedgehog = {
                 if ( am_alice ) var prev_scripts = hedgehog.state[ chid ].bob_can_revoke[ hedgehog.state[ chid ].bob_can_revoke.length - 1 ][ 1 ];
                 else var prev_scripts = hedgehog.state[ chid ].alice_can_revoke[ hedgehog.state[ chid ].alice_can_revoke.length - 1 ][ 1 ];
                 var prev_tx0 = tapscript.Tx.create({
+                    version: 3,
                     vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chid ][ "multisig" ] )],
-                    vout: [hedgehog.getVout( original_amnt - 500, prev_address )],
+                    vout: [
+                        hedgehog.getVout( original_amnt - 240, prev_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 var prev_txid = tapscript.Tx.util.getTxid( prev_tx0 );
                 var new_tx1 = tapscript.Tx.create({
-                    vin: [hedgehog.getVin( prev_txid, 0, original_amnt - 500, prev_address )],
-                    vout: [hedgehog.getVout( original_amnt - 500 - 500, htlc_address )],
+                    version: 3,
+                    vin: [hedgehog.getVin( prev_txid, 0, original_amnt - 240, prev_address )],
+                    vout: [
+                        hedgehog.getVout( original_amnt - 240 - 240, htlc_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 var new_tx1_script = prev_scripts[ 0 ];
                 var new_tx1_target = tapscript.Tap.encodeScript( new_tx1_script );
@@ -1671,15 +1755,23 @@ var hedgehog = {
                     return alert( `Your counterparty sent you invalid full-rev data (wrg pmg) so it will be ignored` );
                 }
                 var prev_tx0 = tapscript.Tx.create({
+                    version: 3,
                     vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chid ][ "multisig" ] )],
-                    vout: [hedgehog.getVout( original_amnt - 500, prev_address )],
+                    vout: [
+                        hedgehog.getVout( original_amnt - 240, prev_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 var doubly_prev_txid = tapscript.Tx.util.getTxid( prev_tx0 );
                 if ( am_alice ) var my_address = alices_address;
                 else var my_address = bobs_address;
                 var tx2 = tapscript.Tx.create({
-                    vin: [hedgehog.getVin( doubly_prev_txid, 0, original_amnt - 500, prev_address )],
-                    vout: [hedgehog.getVout( original_amnt - 500 - 500, my_address )],
+                    version: 3,
+                    vin: [hedgehog.getVin( doubly_prev_txid, 0, original_amnt - 240, prev_address )],
+                    vout: [
+                        hedgehog.getVout( original_amnt - 240 - 240, my_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 var tx2_script = prev_scripts[ 1 ];
                 var tx2_target = tapscript.Tap.encodeScript( tx2_script );
@@ -2021,8 +2113,12 @@ var hedgehog = {
             //tx0 sends all the money from the multisig into alice_can_revoke
             //or bob_can_revoke (depending on who is sending)
             var tx0 = tapscript.Tx.create({
+                version: 3,
                 vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chid ][ "multisig" ] )],
-                vout: [hedgehog.getVout( original_amnt - 500, revocable_address )],
+                vout: [
+                    hedgehog.getVout( original_amnt - 240, revocable_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
+                ],
             });
             tx0s.push( tx0 );
             var tx0_id = tapscript.Tx.util.getTxid( tx0 );
@@ -2032,8 +2128,12 @@ var hedgehog = {
             else var my_address = bobs_address;
             var timeout_tx = tapscript.Tx.create({
                 //TODO: change the sequence number (relative timelock) from 10 to 4032
-                vin: [hedgehog.getVin( tx0_id, 0, original_amnt - 500, revocable_address, 10 )],
-                vout: [hedgehog.getVout( original_amnt - 500 - 500, my_address )],
+                version: 3,
+                vin: [hedgehog.getVin( tx0_id, 0, original_amnt - 240, revocable_address, 10 )],
+                vout: [
+                    hedgehog.getVout( original_amnt - 240 - 240, my_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
+                ],
             });
             if ( am_alice ) var privkey = hedgehog.state[ chid ].alices_privkey;
             else var privkey = hedgehog.state[ chid ].bobs_privkey;
@@ -2070,8 +2170,12 @@ var hedgehog = {
                 //2016 block timelock before he can sweep them from *there* -- and then,
                 //when updating the state, Bob will revoke his ability to withdraw from
                 //the revocable address
-                vin: [hedgehog.getVin( tx0_id, 0, original_amnt - 500, revocable_address )],
-                vout: [hedgehog.getVout( original_amnt - 500 - 500, htlc_address )],
+                version: 3,
+                vin: [hedgehog.getVin( tx0_id, 0, original_amnt - 240, revocable_address )],
+                vout: [
+                    hedgehog.getVout( original_amnt - 240 - 240, htlc_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
+                ],
             });
             tx1s.push( tx1 );
             var tx1_txid = tapscript.Tx.util.getTxid( tx1 );
@@ -2092,10 +2196,12 @@ var hedgehog = {
             //3k, and now in state C I am sending her 5k, the htlc will have 8k in it rather
             //than 5k
             var first_from_htlc_tx = tapscript.Tx.create({
-                vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 500 - 500, htlc_address )],
+                version: 3,
+                vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 240 - 240, htlc_address )],
                 vout: [
                     hedgehog.getVout( balances[ 0 ] + amnt, alices_revocation_address ),
-                    hedgehog.getVout( balances[ 1 ] - 500 - 500 - 500 - amnt, bobs_address ),
+                    hedgehog.getVout( balances[ 1 ] - 240 - 240 - 240 - amnt, bobs_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
                 ],
             });
             first_from_htlc_txs.push( first_from_htlc_tx );
@@ -2106,9 +2212,11 @@ var hedgehog = {
             //she should only do this once the new state has been created
             //if Alice revokes this state the following tx lets Bob sweep the funds
             var from_revo_tx_1 = tapscript.Tx.create({
+                version: 3,
                 vin: [hedgehog.getVin( first_from_htlc_txid, 0, balances[ 0 ] + amnt, alices_revocation_address )],
                 vout: [
-                    hedgehog.getVout( balances[ 0 ] + amnt - 500, bobs_address ),
+                    hedgehog.getVout( balances[ 0 ] + amnt - 240, bobs_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
                 ],
             });
             from_revo_tx_1s.push( from_revo_tx_1 );
@@ -2116,8 +2224,12 @@ var hedgehog = {
             //this one actually disperses the funds to Alice but only after a 20 block timelock
             //it also uses the second path in alices_revocation_scripts
             var from_revo_tx_2 = tapscript.Tx.create({
+                version: 3,
                 vin: [hedgehog.getVin( first_from_htlc_txid, 0, balances[ 0 ] + amnt, alices_revocation_address, 20 )],
-                vout: [hedgehog.getVout( balances[ 0 ] + amnt - 500, alices_address )],
+                vout: [
+                    hedgehog.getVout( balances[ 0 ] + amnt - 240, alices_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
+                ],
             });
             from_revo_tx_2s.push( from_revo_tx_2 );
 
@@ -2135,8 +2247,12 @@ var hedgehog = {
             //timelock if Alice does not disclose her knowledge of the preimage in a timely manner
             var second_from_htlc_tx = tapscript.Tx.create({
                 //TODO: change the sequence number (relative timelock) from 5 to 20
-                vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 500 - 500, htlc_address, 5 )],
-                vout: [hedgehog.getVout( original_amnt - 500 - 500 - 500, revocation_address )],
+                version: 3,
+                vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 240 - 240, htlc_address, 5 )],
+                vout: [
+                    hedgehog.getVout( original_amnt - 240 - 240 - 240, revocation_address ),
+                    {value: 240, scriptPubKey: "51024e73"}.
+                ],
             });
             second_from_htlc_txs.push( second_from_htlc_tx );
             var htlc_2_txid = tapscript.Tx.util.getTxid( second_from_htlc_tx );
@@ -2161,10 +2277,11 @@ var hedgehog = {
             //new state and Alice has fully revoked this one, so if she tries to get it into the
             //revocation address later, she will be screwed
             var amnt_for_alice = balances[ 0 ];
-            var amnt_for_bob = balances[ 1 ] - 500 - 500 - 500 - 500;
+            var amnt_for_bob = balances[ 1 ] - 240 - 240 - 240 - 240;
             var restore_from_revo_tx = tapscript.Tx.create({
                 //TODO: change the sequence number (relative timelock) from 5 to 2016
-                vin: [hedgehog.getVin( htlc_2_txid, 0, original_amnt - 500 - 500 - 500, revocation_address, 5 )],
+                version: 3,
+                vin: [hedgehog.getVin( htlc_2_txid, 0, original_amnt - 240 - 240 - 240, revocation_address, 5 )],
                 vout: [],
             });
             if ( am_alice ) {
@@ -2174,13 +2291,18 @@ var hedgehog = {
                 if ( amnt_for_alice ) restore_from_revo_tx.vout.push( hedgehog.getVout( amnt_for_alice, alices_address ) );
                 if ( amnt_for_bob ) restore_from_revo_tx.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
             }
+            restore_from_revo_tx.vout.push({ value: 240, scriptPubKey: "51024e73" });
             restore_from_revo_txs.push( restore_from_revo_tx );
 
             //create bob_tried_to_cheat_tx that lets Alice sweep the funds if
             //Bob tries to restore the current state after revoking it
             var bob_tried_to_cheat_tx = tapscript.Tx.create({
-                vin: [hedgehog.getVin( htlc_2_txid, 0, original_amnt - 500 - 500 - 500, revocation_address )],
-                vout: [hedgehog.getVout( original_amnt - 500 - 500 - 500 - 500, alices_address )],
+                version: 3,
+                vin: [hedgehog.getVin( htlc_2_txid, 0, original_amnt - 240 - 240 - 240, revocation_address )],
+                vout: [
+                    hedgehog.getVout( original_amnt - 240 - 240 - 240 - 240, alices_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
+                ],
             });
             bob_tried_to_cheat_txs.push( bob_tried_to_cheat_tx );
 
@@ -2258,48 +2380,69 @@ var hedgehog = {
                 if ( am_alice ) var prev_scripts = hedgehog.state[ chid ].alice_can_revoke[ hedgehog.state[ chid ].alice_can_revoke.length - 1 ][ 1 ];
                 else var prev_scripts = hedgehog.state[ chid ].bob_can_revoke[ hedgehog.state[ chid ].bob_can_revoke.length - 1 ][ 1 ];
                 var prev_tx0 = tapscript.Tx.create({
+                    version: 3,
                     vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chid ][ "multisig" ] )],
-                    vout: [hedgehog.getVout( original_amnt - 500, prev_address )],
+                    vout: [
+                        hedgehog.getVout( original_amnt - 240, prev_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 prev_tx0s.push( prev_tx0 );
                 var prev_txid = tapscript.Tx.util.getTxid( prev_tx0 );
                 var new_tx1 = tapscript.Tx.create({
-                    vin: [hedgehog.getVin( prev_txid, 0, original_amnt - 500, prev_address )],
-                    vout: [hedgehog.getVout( original_amnt - 500 - 500, htlc_address )],
+                    version: 3,
+                    vin: [hedgehog.getVin( prev_txid, 0, original_amnt - 240, prev_address )],
+                    vout: [
+                        hedgehog.getVout( original_amnt - 240 - 240, htlc_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 new_tx1s.push( new_tx1 );
                 var new_tx1_txid = tapscript.Tx.util.getTxid( new_tx1 );
                 var new_first_from_htlc_tx = tapscript.Tx.create({
-                    vin: [hedgehog.getVin( new_tx1_txid, 0, original_amnt - 500 - 500, htlc_address )],
+                    version: 3,
+                    vin: [hedgehog.getVin( new_tx1_txid, 0, original_amnt - 240 - 240, htlc_address )],
                     vout: [
                         hedgehog.getVout( balances[ 0 ] + amnt, alices_revocation_address ),
-                        hedgehog.getVout( balances[ 1 ] - 500 - 500 - 500 - amnt, bobs_address ),
+                        hedgehog.getVout( balances[ 1 ] - 240 - 240 - 240 - amnt, bobs_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
                     ],
                 });
                 new_first_from_htlc_txs.push( new_first_from_htlc_tx );
                 var new_first_from_htlc_txid = tapscript.Tx.util.getTxid( new_first_from_htlc_tx );
                 var new_from_revo_tx_1 = tapscript.Tx.create({
+                    version: 3,
                     vin: [hedgehog.getVin( new_first_from_htlc_txid, 0, balances[ 0 ] + amnt, alices_revocation_address )],
                     vout: [
-                        hedgehog.getVout( balances[ 0 ] + amnt - 500, bobs_address ),
+                        hedgehog.getVout( balances[ 0 ] + amnt - 240, bobs_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
                     ],
                 });
                 new_from_revo_tx_1s.push( new_from_revo_tx_1 );
                 var new_from_revo_tx_2 = tapscript.Tx.create({
+                    version: 3,
                     vin: [hedgehog.getVin( new_first_from_htlc_txid, 0, balances[ 0 ] + amnt, alices_revocation_address, 20 )],
-                    vout: [hedgehog.getVout( balances[ 0 ] + amnt - 500, alices_address )],
+                    vout: [
+                        hedgehog.getVout( balances[ 0 ] + amnt - 240, alices_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 new_from_revo_tx_2s.push( new_from_revo_tx_2 );
                 var new_second_from_htlc_tx = tapscript.Tx.create({
                     //TODO: change the sequence number (relative timelock) from 5 to 20
-                    vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 500 - 500, htlc_address, 5 )],
-                    vout: [hedgehog.getVout( original_amnt - 500 - 500 - 500, revocation_address )],
+                    version: 3,
+                    vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 240 - 240, htlc_address, 5 )],
+                    vout: [
+                        hedgehog.getVout( original_amnt - 240 - 240 - 240, revocation_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 new_second_from_htlc_txs.push( new_second_from_htlc_tx );
                 var new_htlc_2_txid = tapscript.Tx.util.getTxid( new_second_from_htlc_tx );
                 var new_restore_from_revo_tx = tapscript.Tx.create({
                     //TODO: change the sequence number (relative timelock) from 5 to 2016
-                    vin: [hedgehog.getVin( new_htlc_2_txid, 0, original_amnt - 500 - 500 - 500, revocation_address, 5 )],
+                    version: 3,
+                    vin: [hedgehog.getVin( new_htlc_2_txid, 0, original_amnt - 240 - 240 - 240, revocation_address, 5 )],
                     vout: [],
                 });
                 if ( am_alice ) {
@@ -2309,10 +2452,15 @@ var hedgehog = {
                     if ( amnt_for_alice ) new_restore_from_revo_tx.vout.push( hedgehog.getVout( amnt_for_alice, alices_address ) );
                     if ( amnt_for_bob ) new_restore_from_revo_tx.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
                 }
+                new_restore_from_revo_tx.vout.push({ value: 240, scriptPubKey: "51024e73" });
                 new_restore_from_revo_txs.push( new_restore_from_revo_tx );
                 var new_bob_tried_to_cheat_tx = tapscript.Tx.create({
-                    vin: [hedgehog.getVin( new_htlc_2_txid, 0, original_amnt - 500 - 500 - 500, revocation_address )],
-                    vout: [hedgehog.getVout( original_amnt - 500 - 500 - 500 - 500, alices_address )],
+                    version: 3,
+                    vin: [hedgehog.getVin( new_htlc_2_txid, 0, original_amnt - 240 - 240 - 240, revocation_address )],
+                    vout: [
+                        hedgehog.getVout( original_amnt - 240 - 240 - 240 - 240, alices_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 new_bob_tried_to_cheat_txs.push( new_bob_tried_to_cheat_tx );
 
@@ -2892,8 +3040,12 @@ var hedgehog = {
             var bobs_address = hedgehog.state[ chid ].bobs_address;
             var original_amnt = balances[ 0 ] + balances[ 1 ];
             var tx0 = tapscript.Tx.create({
+                version: 3,
                 vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chid ][ "multisig" ] )],
-                vout: [hedgehog.getVout( original_amnt - 500, revocable_address )],
+                vout: [
+                    hedgehog.getVout( original_amnt - 240, revocable_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
+                ],
             });
             tx0s.push( tx0 );
             var tx0_id = tapscript.Tx.util.getTxid( tx0 );
@@ -2923,8 +3075,12 @@ var hedgehog = {
                 //2016 block timelock before he can sweep them from *there* -- and then,
                 //when updating the state, Bob will revoke his ability to withdraw from
                 //the revocable address
-                vin: [hedgehog.getVin( tx0_id, 0, original_amnt - 500, revocable_address )],
-                vout: [hedgehog.getVout( original_amnt - 500 - 500, htlc_address )],
+                version: 3,
+                vin: [hedgehog.getVin( tx0_id, 0, original_amnt - 240, revocable_address )],
+                vout: [
+                    hedgehog.getVout( original_amnt - 240 - 240, htlc_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
+                ],
             });
             tx1s.push( tx1 );
             var tx1_txid = tapscript.Tx.util.getTxid( tx1 );
@@ -2939,10 +3095,12 @@ var hedgehog = {
             //create first_from_htlc_tx to disperse the funds from the htlc to Alice's
             //revocation_address if Alice discloses her knowledge of the payment preimage
             var first_from_htlc_tx = tapscript.Tx.create({
-                vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 500 - 500, htlc_address )],
+                version: 3,
+                vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 240 - 240, htlc_address )],
                 vout: [
                     hedgehog.getVout( balances[ 0 ] + amnt, alices_revocation_address ),
-                    hedgehog.getVout( balances[ 1 ] - 500 - 500 - 500 - amnt, bobs_address ),
+                    hedgehog.getVout( balances[ 1 ] - 240 - 240 - 240 - amnt, bobs_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
                 ],
             });
             first_from_htlc_txs.push( first_from_htlc_tx );
@@ -2953,9 +3111,11 @@ var hedgehog = {
             //she should only do this once the new state has been created
             //if Alice revokes this state the following tx lets Bob sweep the funds
             var from_revo_tx_1 = tapscript.Tx.create({
+                version: 3,
                 vin: [hedgehog.getVin( first_from_htlc_txid, 0, balances[ 0 ] + amnt, alices_revocation_address )],
                 vout: [
-                    hedgehog.getVout( balances[ 0 ] + amnt - 500, bobs_address ),
+                    hedgehog.getVout( balances[ 0 ] + amnt - 240, bobs_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
                 ],
             });
             from_revo_tx_1s.push( from_revo_tx_1 );
@@ -2963,8 +3123,12 @@ var hedgehog = {
             //this one actually disperses the funds to Alice but only after a 20 block timelock
             //it also uses the second path in alices_revocation_scripts
             var from_revo_tx_2 = tapscript.Tx.create({
+                version: 3,
                 vin: [hedgehog.getVin( first_from_htlc_txid, 0, balances[ 0 ] + amnt, alices_revocation_address, 20 )],
-                vout: [hedgehog.getVout( balances[ 0 ] + amnt - 500, alices_address )],
+                vout: [
+                    hedgehog.getVout( balances[ 0 ] + amnt - 240, alices_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
+                ],
             });
             from_revo_tx_2s.push( from_revo_tx_2 );
 
@@ -2980,8 +3144,12 @@ var hedgehog = {
             //timelock if Alice does not disclose her knowledge of the preimage in a timely manner
             var second_from_htlc_tx = tapscript.Tx.create({
                 //TODO: change the sequence number (relative timelock) from 5 to 20
-                vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 500 - 500, htlc_address, 5 )],
-                vout: [hedgehog.getVout( original_amnt - 500 - 500 - 500, revocation_address )],
+                version: 3,
+                vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 240 - 240, htlc_address, 5 )],
+                vout: [
+                    hedgehog.getVout( original_amnt - 240 - 240 - 240, revocation_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
+                ],
             });
             second_from_htlc_txs.push( second_from_htlc_tx );
             var htlc_2_txid = tapscript.Tx.util.getTxid( second_from_htlc_tx );
@@ -3006,10 +3174,11 @@ var hedgehog = {
             //new state and Alice has fully revoked this one, so if she tries to get it into the
             //revocation address later, she will be screwed
             var amnt_for_alice = balances[ 0 ];
-            var amnt_for_bob = balances[ 1 ] - 500 - 500 - 500 - 500;
+            var amnt_for_bob = balances[ 1 ] - 240 - 240 - 240 - 240;
             var restore_from_revo_tx = tapscript.Tx.create({
                 //TODO: change the sequence number (relative timelock) from 5 to 2016
-                vin: [hedgehog.getVin( htlc_2_txid, 0, original_amnt - 500 - 500 - 500, revocation_address, 5 )],
+                version: 3,
+                vin: [hedgehog.getVin( htlc_2_txid, 0, original_amnt - 240 - 240 - 240, revocation_address, 5 )],
                 vout: [],
             });
             if ( am_alice ) {
@@ -3019,13 +3188,18 @@ var hedgehog = {
                 if ( amnt_for_alice ) restore_from_revo_tx.vout.push( hedgehog.getVout( amnt_for_alice, alices_address ) );
                 if ( amnt_for_bob ) restore_from_revo_tx.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
             }
+            restore_from_revo_tx.vout.push({ value: 240, scriptPubKey: "51024e73" });
             restore_from_revo_txs.push( restore_from_revo_tx );
 
             //create bob_tried_to_cheat_tx that lets Alice sweep the funds if
             //Bob tries to restore the current state after revoking it
             var bob_tried_to_cheat_tx = tapscript.Tx.create({
-                vin: [hedgehog.getVin( htlc_2_txid, 0, original_amnt - 500 - 500 - 500, revocation_address )],
-                vout: [hedgehog.getVout( original_amnt - 500 - 500 - 500 - 500, alices_address )],
+                version: 3,
+                vin: [hedgehog.getVin( htlc_2_txid, 0, original_amnt - 240 - 240 - 240, revocation_address )],
+                vout: [
+                    hedgehog.getVout( original_amnt - 240 - 240 - 240 - 240, alices_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
+                ],
             });
             bob_tried_to_cheat_txs.push( bob_tried_to_cheat_tx );
 
@@ -3120,47 +3294,65 @@ var hedgehog = {
                 if ( am_alice ) var prev_scripts = hedgehog.state[ chid ].bob_can_revoke[ hedgehog.state[ chid ].bob_can_revoke.length - 1 ][ 1 ];
                 else var prev_scripts = hedgehog.state[ chid ].alice_can_revoke[ hedgehog.state[ chid ].alice_can_revoke.length - 1 ][ 1 ];
                 var prev_tx0 = tapscript.Tx.create({
+                    version: 3,
                     vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chid ][ "multisig" ] )],
-                    vout: [hedgehog.getVout( original_amnt - 500, prev_address )],
+                    vout: [hedgehog.getVout( original_amnt - 240, prev_address )],
                 });
                 var prev_txid = tapscript.Tx.util.getTxid( prev_tx0 );
                 var new_tx1 = tapscript.Tx.create({
-                    vin: [hedgehog.getVin( prev_txid, 0, original_amnt - 500, prev_address )],
-                    vout: [hedgehog.getVout( original_amnt - 500 - 500, htlc_address )],
+                    version: 3,
+                    vin: [hedgehog.getVin( prev_txid, 0, original_amnt - 240, prev_address )],
+                    vout: [
+                        hedgehog.getVout( original_amnt - 240 - 240, htlc_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 new_tx1s.push( new_tx1 );
                 var new_tx1_txid = tapscript.Tx.util.getTxid( new_tx1 );
                 var new_first_from_htlc_tx = tapscript.Tx.create({
-                    vin: [hedgehog.getVin( new_tx1_txid, 0, original_amnt - 500 - 500, htlc_address )],
+                    version: 3,
+                    vin: [hedgehog.getVin( new_tx1_txid, 0, original_amnt - 240 - 240, htlc_address )],
                     vout: [
                         hedgehog.getVout( balances[ 0 ] + amnt, alices_revocation_address ),
-                        hedgehog.getVout( balances[ 1 ] - 500 - 500 - 500 - amnt, bobs_address ),
+                        hedgehog.getVout( balances[ 1 ] - 240 - 240 - 240 - amnt, bobs_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
                     ],
                 });
                 new_first_from_htlc_txs.push( first_from_htlc_tx );
                 var new_first_from_htlc_txid = tapscript.Tx.util.getTxid( new_first_from_htlc_tx );
                 var new_from_revo_tx_1 = tapscript.Tx.create({
+                    version: 3,
                     vin: [hedgehog.getVin( new_first_from_htlc_txid, 0, balances[ 0 ] + amnt, alices_revocation_address )],
                     vout: [
-                        hedgehog.getVout( balances[ 0 ] + amnt - 500, bobs_address ),
+                        hedgehog.getVout( balances[ 0 ] + amnt - 240, bobs_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
                     ],
                 });
                 new_from_revo_tx_1s.push( new_from_revo_tx_1 );
                 var new_from_revo_tx_2 = tapscript.Tx.create({
+                    version: 3,
                     vin: [hedgehog.getVin( new_first_from_htlc_txid, 0, balances[ 0 ] + amnt, alices_revocation_address, 20 )],
-                    vout: [hedgehog.getVout( balances[ 0 ] + amnt - 500, alices_address )],
+                    vout: [
+                        hedgehog.getVout( balances[ 0 ] + amnt - 240, alices_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 })
                 new_from_revo_tx_2s.push( new_from_revo_tx_2 );
                 var new_second_from_htlc_tx = tapscript.Tx.create({
                     //TODO: change the sequence number (relative timelock) from 5 to 20
-                    vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 500 - 500, htlc_address, 5 )],
-                    vout: [hedgehog.getVout( original_amnt - 500 - 500 - 500, revocation_address )],
+                    version: 3,
+                    vin: [hedgehog.getVin( tx1_txid, 0, original_amnt - 240 - 240, htlc_address, 5 )],
+                    vout: [
+                        hedgehog.getVout( original_amnt - 240 - 240 - 240, revocation_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 new_second_from_htlc_txs.push( new_second_from_htlc_tx );
                 var new_htlc_2_txid = tapscript.Tx.util.getTxid( new_second_from_htlc_tx );
                 var new_restore_from_revo_tx = tapscript.Tx.create({
                     //TODO: change the sequence number (relative timelock) from 5 to 2016
-                    vin: [hedgehog.getVin( new_htlc_2_txid, 0, original_amnt - 500 - 500 - 500, revocation_address, 5 )],
+                    version: 3,
+                    vin: [hedgehog.getVin( new_htlc_2_txid, 0, original_amnt - 240 - 240 - 240, revocation_address, 5 )],
                     vout: [],
                 });
                 if ( am_alice ) {
@@ -3170,10 +3362,15 @@ var hedgehog = {
                     if ( amnt_for_alice ) new_restore_from_revo_tx.vout.push( hedgehog.getVout( amnt_for_alice, alices_address ) );
                     if ( amnt_for_bob ) new_restore_from_revo_tx.vout.push( hedgehog.getVout( amnt_for_bob, bobs_address ) );
                 }
+                new_restore_from_revo_tx.vout.push({ value: 240, scriptPubKey: "51024e73" });
                 new_restore_from_revo_txs.push( new_restore_from_revo_tx );
                 var new_bob_tried_to_cheat_tx = tapscript.Tx.create({
-                    vin: [hedgehog.getVin( new_htlc_2_txid, 0, original_amnt - 500 - 500 - 500, revocation_address )],
-                    vout: [hedgehog.getVout( original_amnt - 500 - 500 - 500 - 500, alices_address )],
+                    version: 3,
+                    vin: [hedgehog.getVin( new_htlc_2_txid, 0, original_amnt - 240 - 240 - 240, revocation_address )],
+                    vout: [
+                        hedgehog.getVout( original_amnt - 240 - 240 - 240 - 240, alices_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 new_bob_tried_to_cheat_txs.push( new_bob_tried_to_cheat_tx );
                 var bobs_conditional_first_htlc_sig = data[ "bobs_conditional_first_htlc_sigs" ][ k ];
@@ -3304,13 +3501,21 @@ var hedgehog = {
                 else var prev_scripts = hedgehog.state[ chid ].alice_can_revoke[ hedgehog.state[ chid ].alice_can_revoke.length - 1 ][ 1 ];
                 var utxo_info = hedgehog.state[ chid ].multisig_utxo_info;
                 var prev_tx0 = tapscript.Tx.create({
+                    version: 3,
                     vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chid ][ "multisig" ] )],
-                    vout: [hedgehog.getVout( original_amnt - 500, prev_address )],
+                    vout: [
+                        hedgehog.getVout( original_amnt - 240, prev_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 var prev_txid = tapscript.Tx.util.getTxid( prev_tx0 );
                 var new_tx1 = tapscript.Tx.create({
-                    vin: [hedgehog.getVin( prev_txid, 0, original_amnt - 500, prev_address )],
-                    vout: [hedgehog.getVout( original_amnt - 500 - 500, htlc_address )],
+                    version: 3,
+                    vin: [hedgehog.getVin( prev_txid, 0, original_amnt - 240, prev_address )],
+                    vout: [
+                        hedgehog.getVout( original_amnt - 240 - 240, htlc_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 var new_tx1_script = prev_scripts[ 0 ];
                 var new_tx1_target = tapscript.Tap.encodeScript( new_tx1_script );
@@ -3369,15 +3574,23 @@ var hedgehog = {
                     return alert( `Your counterparty sent you invalid full-rev data (wrg pmg) so it will be ignored` );
                 }
                 var prev_tx0 = tapscript.Tx.create({
+                    version: 3,
                     vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chid ][ "multisig" ] )],
-                    vout: [hedgehog.getVout( original_amnt - 500, prev_address )],
+                    vout: [
+                        hedgehog.getVout( original_amnt - 240, prev_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 var doubly_prev_txid = tapscript.Tx.util.getTxid( prev_tx0 );
                 if ( am_alice ) var my_address = alices_address;
                 else var my_address = bobs_address;
                 var tx2 = tapscript.Tx.create({
-                    vin: [hedgehog.getVin( doubly_prev_txid, 0, original_amnt - 500, prev_address )],
-                    vout: [hedgehog.getVout( original_amnt - 500 - 500, my_address )],
+                    version: 3,
+                    vin: [hedgehog.getVin( doubly_prev_txid, 0, original_amnt - 240, prev_address )],
+                    vout: [
+                        hedgehog.getVout( original_amnt - 240 - 240, my_address ),
+                        {value: 240, scriptPubKey: "51024e73"},
+                    ],
                 });
                 var tx2_script = prev_scripts[ 1 ];
                 var tx2_target = tapscript.Tap.encodeScript( tx2_script );
