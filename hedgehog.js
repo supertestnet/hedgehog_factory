@@ -165,9 +165,7 @@ var hedgehog = {
                 var opening = true;
 
                 //validate the initial state using the regular "receive" function
-                console.log( 'made it here, checking sig validity' );
                 var opened = await hedgehog.receive( {amnt: amnt - 240 - 240, sig_1: data[ "sig_1" ], sig_3: data[ "sig_3" ], chan_id: data[ "chan_id" ], hash: data[ "hash" ]}, null, skip_alert );
-                console.log( 'the sigs were valid, right?', opened );
                 if ( opened !== true ) return;
 
                 //update the state to reflect Bob's ability to withdraw 100%
@@ -3414,7 +3412,6 @@ var hedgehog = {
                 alices_conditional_restoration_sigs.push( alices_conditional_restoration_sig );
                 var alices_conditional_cheater_sig = tapscript.Signer.taproot.sign( privkey, new_bob_tried_to_cheat_tx, 0, { extension: first_revo_target }).hex;
 
-                console.log( conditional_htlc_1_is_valid, conditional_htlc_2_is_valid, conditional_cheater_is_valid, conditional_revo_tx_1_sig_is_valid, conditional_revo_tx_2_sig_is_valid );
                 if ( !conditional_htlc_1_is_valid || !conditional_htlc_2_is_valid || !conditional_cheater_is_valid || !conditional_revo_tx_1_sig_is_valid || !conditional_revo_tx_2_sig_is_valid ) {
                     //restore old state and inform user this state update was invalid
                     if ( am_alice ) {
