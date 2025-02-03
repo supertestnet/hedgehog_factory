@@ -94,7 +94,7 @@ var hedgehog_factory = {
             channel_size: 100_000,
             minimum: 3,
             maximum: 20,
-            address_type: allover_network,
+            address_type: allover_address_type,
             relays: ["wss://nostrue.com"],
             privkey: hedgehog_factory.bytesToHex( window.crypto.getRandomValues( new Uint8Array( 32 ) ) ),
             pubkey: null,
@@ -140,6 +140,7 @@ var hedgehog_factory = {
             users_to_delete: [],
             validating: false,
             admin_info_on_each_user: {},
+            user_privkeys: {},
         }
         var state = hedgehog_factory.state[ state_id ];
         if ( params[ "privkey" ] ) state.privkey = params[ "privkey" ];
@@ -425,13 +426,14 @@ var hedgehog_factory = {
             });
         });
         var change_amnt = actual_sum - ( required_sum - 830 );
+        var funding_txfee = 500;
         var vout = [{
-            value: required_sum - 830,
+            value: required_sum - ( funding_txfee + 330 ),
             scriptPubKey: tapscript.Address.toScriptPubKey( multisig ),
         }];
         // TODO: ensure you apply the tx fee per the feerate value
         if ( change_amnt >= 830 ) vout.push({
-            value: change_amnt - 500,
+            value: change_amnt - funding_txfee,
             scriptPubKey: tapscript.Address.toScriptPubKey( change_address ),
         });
         var funding_tx = tapscript.Tx.create({
@@ -1003,6 +1005,7 @@ var hedgehog_factory = {
                 ejection_sigs_for_this_user,
                 connector_sigs_for_this_user,
             });
+            state.user_privkeys[ state.pubkey ] = privkey;
             node.send( 'channels_active', msg, recipient, msg_id );
         }
     },
@@ -1174,8 +1177,19 @@ var hedgehog_factory = {
         }
         $( '.eject' ).setAttribute( "data-state_id", state_id );
         $( '.eject' ).onclick = e => {
+            var happy_path = confirm( 'click ok to use the happy path or cancel to use the sad path' );
+            if ( happy_path ) {
+                //TODO: withdraw all the user's funds via LN before sending the admin your privkey
+                var all_peers = state.all_peers;
+                var recipient = all_peers[ 0 ];
+                var node = state.node;
+                node.send( 'heres_my_privkey', state.privkey, recipient, msg_id );
+                return;
+            }
             var state_id = e.target.getAttribute( "data-state_id" );
             var round = Number( prompt( `enter what round we are in` ) );
+            console.log( round, !( round >= 0 ) );
+            if ( !( round >= 0 ) ) return;
             hedgehog_factory.state[ state_id ].current_round = round;
             hedgehog_factory.ejectUser( hedgehog_factory.state[ state_id ].all_peers.indexOf( hedgehog_factory.state[ state_id ].pubkey ), state_id, false );
         }
@@ -1546,5 +1560,48 @@ var hedgehog_factory = {
             loop();
         }
         loop();
+    },
+    liquidateFactory: async state_id => {
+        var state = hedgehog_factory.state[ state_id ];
+        var privkeys = state.user_privkeys;
+        var script = state.script;
+        var round = Number( prompt( `enter what round we are in` ) );
+        state.current_round = round;
+        if ( !round ) var parent_tx = state.funding_tx;
+        else var parent_tx = state.rounds[ round - 1 ];
+        var txid = tapscript.Tx.util.getTxid( parent_tx );
+        //vout is 0 if parent is funding_tx
+        //otherwise vout is 2
+        if ( !round ) var vout = 0;
+        else var vout = 2;
+        var amnt = Number( parent_tx.vout[ vout ].value );
+        var destino = prompt( `enter a bitcoin address where you want to send the money` );
+        var liquidation_fee = 2 * state.all_peers.length * state.average_bytesize_of_each_users_input;
+        var tx = tapscript.Tx.create({
+            vin: [{
+                txid,
+                vout,
+                prevout: parent_tx.vout[ vout ],
+            }],
+            vout: [{
+                value: amnt - liquidation_fee,
+                scriptPubKey: tapscript.Address.toScriptPubKey( destino ),
+            }],
+        });
+        var sigs = [];
+        var tapleaf = state.tree[ 0 ];
+        state.all_peers.forEach( peer => {
+            var privkey = state.user_privkeys[ peer ];
+            var sig = tapscript.Signer.taproot.sign( privkey, tx, 0, { extension: tapleaf }).hex;
+            sigs.push( sig );
+        });
+        var script = state.script;
+        var backup_pubkey = state.backup_pubkey;
+        var [ _, cblock ] = tapscript.Tap.getPubKey( backup_pubkey, { target: tapleaf, tree: state.tree });
+        sigs.reverse();
+        tx.vin[ 0 ].witness = [ ...sigs, script, cblock ];
+        var txhex = tapscript.Tx.encode( tx ).hex;
+        console.log( 'broadcast this:' );
+        console.log( txhex );
     },
 }
