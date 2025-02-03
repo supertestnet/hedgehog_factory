@@ -84,6 +84,46 @@ var hedgehog_factory = {
         var returnable = await getTimeoutData();
         return returnable;
     },
+    addressOnceHadMoney: async ( address, network ) => {
+        var nonjson = await fetch( "https://mempool.space/" + network + "api/address/" + address );
+        var json = await nonjson.json();
+        if ( json[ "chain_stats" ][ "tx_count" ] > 0 || json[ "mempool_stats" ][ "tx_count" ] > 0 ) return true;
+        return false;
+    },
+    loopTilAddressReceivesMoney: async ( address, network ) => {
+        return new Promise( ( resolve, reject ) => {
+            var loop = async () => {
+                console.log( 'waiting for address to receive money...' );
+                await hedgehog_factory.waitSomeTime( 1000 );
+                var done = await hedgehog_factory.addressOnceHadMoney( address, network );
+                if ( !done ) return loop();
+                resolve( done );
+            }
+            loop();
+        });
+    },
+    addressReceivedMoneyInThisTx: async ( address, network ) => {
+        var txid;
+        var vout;
+        var amnt;
+        var nonjson = await fetch( "https://mempool.space/" + network + "api/address/" + address + "/txs" );
+        var json = await nonjson.json();
+        json.forEach( tx => {
+            tx[ "vout" ].forEach( ( output, index ) => {
+                if ( output[ "scriptpubkey_address" ] == address ) {
+                    txid = tx[ "txid" ];
+                    vout = index;
+                    amnt = output[ "value" ];
+                }
+            });
+        });
+        return [ txid, vout, amnt ];
+    },
+    pushBTCpmt: async ( rawtx, network ) => {
+        var response = await fetch( "https://mempool.space/" + network + "api/tx", {method: "POST", body: rawtx});
+        var txid = await response.text();
+        return txid;
+    },
     init: state_id => {
         hedgehog_factory.state[ state_id ] = {
             whos_here: {},
@@ -149,6 +189,178 @@ var hedgehog_factory = {
         state.node = nostr_p2p( state.relays, state.privkey );
         $( '.channel_cost' ).innerText = state.channel_cost;
         $( '.channel_size' ).innerText = state.channel_size.toLocaleString();
+    },
+    startCeremony: async state_id => {
+        var msg_id = state_id;
+        var state = hedgehog_factory.state[ state_id ];
+        state.ceremony_started = true;
+        var whos_here = state.whos_here;
+        var node = state.node;
+        var minimum = state.minimum;
+        var who_should_pay = state.who_should_pay;
+        var all_peers = state.all_peers;
+        var channel_size = state.channel_size;
+        var amount_per_user_to_cover_p2a_costs = state.amount_per_user_to_cover_p2a_costs;
+        var pubkey = state.pubkey;
+        var maximum = state.maximum;
+        var channel_cost = state.channel_cost;
+        var address_type = state.address_type;
+        var peers = Object.keys( whos_here );
+        if ( peers.length > maximum ) {
+            //TODO: send a message to anyone who gets cut off telling them
+            //to try again later
+            var cut_off_people = JSON.parse( JSON.stringify( peers ) );
+            cut_off_people = cut_off_people.splice( 0, maximum );
+            peers.length = maximum;
+            var msg = JSON.stringify({
+                type: "abort",
+                value: `You have been excluded from this channel factory because we exceeded the maximum number of people allowed. Please try again in a different channel factory.`
+            });
+            node.relay( 'preparation_phase', msg, cut_off_people, msg_id );
+        }
+        if ( peers.length < minimum ) {
+            console.log( 'not enough' );
+            var msg = JSON.stringify({
+                type: "abort",
+                value: `Aborting because we did not have enough participants. Only ${peers.length} people showed up when there was a required minimum of ${minimum}, so we’ll have to try again later. Please bring more people next time.`
+            });
+            node.relay( 'preparation_phase', msg, peers, msg_id );
+            return;
+        }
+        var pubkeys_for_hedgehog_channels = {}
+        var my_privkey_for_my_hedgehog_channel_with_myself = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() );
+        var my_pubkey_for_my_hedgehog_channel_with_myself = nobleSecp256k1.getPublicKey( my_privkey_for_my_hedgehog_channel_with_myself, true ).substring( 2 );
+        state.admins_pubkey_for_hedgehog_channel = my_pubkey_for_my_hedgehog_channel_with_myself;
+        pubkeys_for_hedgehog_channels[ pubkey ] = my_pubkey_for_my_hedgehog_channel_with_myself;
+        state.admin_preimage_for_own_hedgehog_channel = hedgehog_factory.bytesToHex( window.crypto.getRandomValues( new Uint8Array( 16 ) ) );
+        state.initial_state_hash = hedgehog.rmd160( hedgehog.hexToBytes( state.admin_preimage_for_own_hedgehog_channel ) );
+        state.admin_privkey_for_own_hedgehog_channel = my_privkey_for_my_hedgehog_channel_with_myself;
+        hedgehog.keypairs[ state.admins_pubkey_for_hedgehog_channel ] = {
+            privkey: my_privkey_for_my_hedgehog_channel_with_myself,
+            preimage: state.admin_preimage_for_own_hedgehog_channel,
+        }
+        var i; for ( i=0; i<peers.length; i++ ) {
+            var peer = peers[ i ];
+            showModal( `<p>Getting an invoice for user ${i + 1}...` );
+            var delay_tolerance = 10;
+            var invoice_data = await nwcjs.makeInvoice( nwcjs.nwc_infos[ 0 ], channel_cost, "", delay_tolerance );
+            if ( invoice_data.hasOwnProperty( "error" ) && invoice_data.error ) return showModal( `something went wrong fetching an invoice, abort and tell your users you'll send them a new link` );
+            var invoice = invoice_data.result.invoice;
+            var preimage_for_this_channel = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomBytes( 16 ) );
+            var privkey_for_this_channel = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() );
+            var pubkey_for_this_channel = nobleSecp256k1.getPublicKey( privkey_for_this_channel, true ).substring( 2 );
+            hedgehog.keypairs[ pubkey_for_this_channel ] = {
+                privkey: privkey_for_this_channel,
+                preimage: preimage_for_this_channel,
+            }
+            pubkeys_for_hedgehog_channels[ peer ] = pubkey_for_this_channel;
+            who_should_pay[ peer ] = [ "not_paid", invoice, preimage_for_this_channel, privkey_for_this_channel ];
+        }
+        modalVanish();
+        state.admin_pubkeys_for_hedgehog_channels = pubkeys_for_hedgehog_channels;
+        var i; for ( i=0; i<peers.length; i++ ) {
+            var peer = peers[ i ];
+            var index = i;
+            console.log( `sending ${peer} their invoice` );
+            var msg = JSON.stringify({
+                type: "pay_invoice",
+                value: who_should_pay[ peer ][ 1 ],
+            });
+            node.send( 'preparation_phase', msg, peers[ index ], msg_id );
+            var start_time = Math.floor( Date.now() / 1000 );
+            console.log( `in 10 seconds we will check if ${peer}'s invoice is paid` );
+            var loop = async () => {
+                //TODO: uncomment the following 12 lines to stop pretending everyone paid
+                // await hedgehog_factory.waitSomeTime( 10 * 1000 );
+                // console.log( `checking if ${peer}'s invoice is paid` );
+                // var now = Math.floor( Date.now() / 1000 );
+                // var status_data = await nwcjs.checkInvoice( nwcjs.nwc_infos[ 0 ], invoice, delay_tolerance );
+                // if ( now - start_time > 60 ) return console.log( `timing out this peer: ${peer}` );
+                // console.log( `${peer}'s invoice is paid, right?`, !!status_data.result.settled_at );
+                // //if settled_at is null I should loop
+                // // if ( !status_data.result.settled_at ) {
+                // //     console.log( `in another 10 seconds we will check again if ${peer}'s invoice is paid` );
+                // //     return loop();
+                // // }
+                // //otherwise I should mark them as paid
+                who_should_pay[ peer ][ 0 ] = "paid";
+                all_peers.push( peer );
+                console.log( `${peer} paid` );
+                var hash_for_hedgehog_channel = hedgehog.rmd160( hedgehog.hexToBytes( who_should_pay[ peer ][ 2 ] ) );
+                var msg = JSON.stringify({
+                    type: "invoice_paid",
+                    value: JSON.stringify({
+                        //give each user a hash for use in
+                        //creating the initial state of the hedgehog
+                        //channel (they need to pass in your pubkey-
+                        //hash pair in order to give you a sig that
+                        //lets you withdraw everything in the initial
+                        //state)
+                        hash_for_hedgehog_channel,
+                        pubkeys_for_hedgehog_channels,
+                        //TODO: also give each user a blind signature
+                    }),
+                });
+                node.send( 'preparation_phase', msg, peers[ index ], msg_id );
+            }
+            await loop();
+        }
+        //TODO: kick people out of admin_pubkeys_for_hedgehog_channels if they don't pay or don't sign right data
+        //abort if, after 60 seconds, not enough people paid to meet your minimum
+        //TODO: fix the wait time -- I should wait a maximum of 60 seconds for everyone to send back their data
+        var peers_to_message = JSON.parse( JSON.stringify( all_peers ) );
+        //ensure the all_peers object includes yourself
+        state.all_peers.push( pubkey );
+        var num_who_paid = Object.keys( who_should_pay ).length;
+        Object.keys( who_should_pay ).forEach( participant => {
+            if ( who_should_pay[ participant ][ 0 ] !== "paid" ) num_who_paid = num_who_paid - 1;
+        });
+        console.log( "num who paid:", num_who_paid, "minimum:", minimum );
+        if ( num_who_paid < minimum ) {
+            console.log( 'not enough paid' );
+            var were_or_was = minimum - num_who_paid === 1 ? "was a troll" : "were trolls";
+            var msg = JSON.stringify({
+                type: "abort",
+                value: `Aborting because ${peers.length} people registered (which is enough because the minimum was ${minimum}) but ${minimum - num_who_paid} of them ${were_or_was}, so the number of “real” participants was less than ${minimum}, so we’ll have to try again later. Please bring more people next time.`
+            });
+            node.relay( 'preparation_phase', msg, peers_to_message, msg_id );
+            return;
+        }
+        console.log( 'enough paid' );
+        // Give everyone the list of participating pubkeys, sorted in random order (you got their pubkeys when they announced their presence)
+        var randomized_peers = hedgehog_factory.shuffle( JSON.parse( JSON.stringify( peers ) ) );
+        // Give everyone the utxo data of a sufficient number of inputs to make your 1-or-2 output transaction (utxo data consists of a txid, a vout, an amount, and an address)
+        var required_sum = ( channel_size * ( randomized_peers.length + 1 ) ) + ( amount_per_user_to_cover_p2a_costs * ( randomized_peers.length + 1 ) ) + 830;
+        var admin_addy = tapscript.Address.fromScriptPubKey( [ 1, pubkey ], address_type );
+        //TODO: delete the line below -- during the demo I wait some time so everyone sees their invoice, because if I don't, the prompt sometimes stops javascript from running on the other pages, and they don't see their invoices
+        await hedgehog_factory.waitSomeTime( 500 );
+        // console.log( `send at least ${required_sum} to this address:` );
+        // console.log( admin_addy );
+        showModal( `
+            <p>Send at least ${required_sum} sats to this address</p>
+            <p>${admin_addy}</p>
+            <p>Then wait while this app detects the transaction</p>
+        ` );
+        await hedgehog_factory.loopTilAddressReceivesMoney( admin_addy, mempool_network );
+        var [ txid, vout, amnt ] = await hedgehog_factory.addressReceivedMoneyInThisTx( admin_addy, mempool_network );
+        modalVanish();
+        // var txid = prompt( `send at least ${required_sum} sats to the address in your console and enter the txid` );
+        // var vout = Number( prompt( `and the vout` ) );
+        // var amnt = Number( prompt( `and the amount` ) );
+        var utxos_for_protocol = [{txid, vout, amnt, addy: admin_addy}];
+        // Give everyone a feerate to use when creating the 1-or-2 output transaction
+        // TODO: actually check a feerate source and ensure the feerate chosen is at or above the fast-track option
+        var sats_per_byte = 1;
+        // Give everyone a change address to send the change to when creating the 1-or-2 output transaction
+        //TODO: use a "real" change address
+        var change_address = "tb1phl9kvt953d9rwvwy322fjpdgf95wqvj0l9rhgfnwgknqgfcwdkwqwrfkf8";
+        var msg = JSON.stringify({
+            type: "official_peers_and_utxos_list",
+            value: { randomized_peers, utxos_for_protocol, sats_per_byte, change_address },
+        });
+        node.relay( 'signing_phase', msg, peers_to_message, msg_id );
+        hedgehog_factory.setSigningTimer( randomized_peers, state_id, utxos_for_protocol, sats_per_byte, change_address );
+        hedgehog_factory.startSigning( msg, state_id );
     },
     whosHereCleaner: async state_id => {
         var now = Math.floor( Date.now() / 1000 );
@@ -848,6 +1060,24 @@ var hedgehog_factory = {
             state.users_to_delete = naughty_peers;
             return;
         }
+        var pool_div = document.createElement( "div" );
+        pool_div.classList.add( "pool" );
+        pool_div.classList.add( `pool_${state_id}` );
+        pool_div.innerHTML = `<div class="pool_meta">Pool ${$$( '.pool' ).length + 1}</div><div class="users_div hidden"></div>`;
+        pool_div.getElementsByClassName( "pool_meta" )[ 0 ].onclick = e => {
+            var users_div = e.target.parentElement.getElementsByClassName( "users_div" )[ 0 ];
+            var pool_meta = e.target.parentElement.getElementsByClassName( "pool_meta" )[ 0 ];
+            if ( users_div.classList.contains( "hidden" ) ) {
+                users_div.classList.remove( "hidden" );
+                pool_meta.style.borderBottom = `0`;
+                pool_meta.style.borderRadius = `1rem 1rem 0 0`;
+            } else {
+                users_div.classList.add( "hidden" );
+                pool_meta.style.borderBottom = `1px solid black`;
+                pool_meta.style.borderRadius = `1rem`;
+            }
+        }
+        var users_div = pool_div.getElementsByClassName( "users_div" )[ 0 ];
         var i; for ( i=0; i<all_peers.length; i++ ) {
             var peer = all_peers[ i ];
             var div = document.createElement( "div" );
@@ -862,8 +1092,9 @@ var hedgehog_factory = {
                     <p><button onclick="hedgehog_factory.ejectUser( ${i}, '${state_id}' );" class="eject_user_btn">Eject user ${i + 1}</button></p>
                 </div>
             `;
-            $( '.ejection_buttons' ).append( div.firstElementChild );
+            users_div.append( div.firstElementChild );
         }
+        $( '.list_of_pools' ).append( pool_div );
         $$( '.view_profits' ).forEach( ( item, index ) => {
             if ( !index ) {
                 item.disabled = true;
@@ -953,13 +1184,14 @@ var hedgehog_factory = {
         });
         $$( '.signer .progressBar' ).forEach( item => item.style.width = `100%` );
         $( '.validation_phase .progressBar' ).style.width = `100%`;
-        setTimeout( () => {showPage( 'ejection_buttons' );}, 2000 );
+        setTimeout( () => {showPage( 'list_of_pools' );}, 2000 );
         var sig_for_funding_tx = tapscript.Signer.taproot.sign( privkey, funding_tx, 0 );
         funding_tx.vin[ 0 ].witness = [ sig_for_funding_tx ];
         var funding_txid = tapscript.Tx.util.getTxid( funding_tx );
         var txhex = tapscript.Tx.encode( funding_tx ).hex;
-        console.log( 'broadcast this:' );
-        console.log( txhex );
+        // console.log( 'broadcast this:' );
+        // console.log( txhex );
+        pushBTCpmt( txhex, mempool_network );
         state.signing_finished = true;
         var funding_inputs_sum = 0;
         var funding_outputs_sum = 0;
@@ -1198,7 +1430,7 @@ var hedgehog_factory = {
         var loop = async () => {
             try {
                 await hedgehog_factory.waitSomeTime( 10_000 );
-                var data = await fetch( `https://mempool.space/${allover_network}/api/tx/${funding_txid}` );
+                var data = await fetch( `https://mempool.space/${mempool_network}api/tx/${funding_txid}` );
                 var json = await data.json();
                 var is_confirmed = json.status.hasOwnProperty( "confirmed" ) && json.status[ "confirmed" ];
                 if ( !is_confirmed ) return loop();
@@ -1621,7 +1853,7 @@ var hedgehog_factory = {
         console.log( txhex );
     },
     cancelDeposit: async ( state_id, txid, vout, amnt_sent ) => {
-        if ( !amnt_prepared ) return alert( 'you forgot to say what amount you sent' );
+        if ( !amnt_sent ) return alert( 'you forgot to say what amount you sent' );
         var destino = prompt( `enter the address where you want to send the money` );
         var state = hedgehog_factory.state[ state_id ];
         var tx = tapscript.Tx.create({
@@ -1629,7 +1861,7 @@ var hedgehog_factory = {
                 txid,
                 vout,
                 prevout: {
-                    value: amnt_prepared,
+                    value: amnt_sent,
                     scriptPubKey: [ 1, state.pubkey ],
                 }
             }],
@@ -1643,5 +1875,5 @@ var hedgehog_factory = {
         var txhex = tapscript.Tx.encode( tx ).hex;
         console.log( 'broadcast this:' );
         console.log( txhex );
-    }
+    },
 }
