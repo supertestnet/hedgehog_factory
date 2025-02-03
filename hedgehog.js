@@ -165,7 +165,9 @@ var hedgehog = {
                 var opening = true;
 
                 //validate the initial state using the regular "receive" function
+                console.log( 'made it here, checking sig validity' );
                 var opened = await hedgehog.receive( {amnt: amnt - 240 - 240, sig_1: data[ "sig_1" ], sig_3: data[ "sig_3" ], chan_id: data[ "chan_id" ], hash: data[ "hash" ]}, null, skip_alert );
+                console.log( 'the sigs were valid, right?', opened );
                 if ( opened !== true ) return;
 
                 //update the state to reflect Bob's ability to withdraw 100%
