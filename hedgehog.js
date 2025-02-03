@@ -438,7 +438,7 @@ var hedgehog = {
         }
         tx1.vout.push({ value: 240, scriptPubKey: "51024e73" });
         // console.log( 87, JSON.stringify( tx1 ) );
-        // console.log( 69, "tx0:", JSON.stringify( tx0 ) );
+        console.log( 69, "tx0:", JSON.stringify( tx0 ) );
         // console.log( 70, "tx1:", JSON.stringify( tx1 ) );
 
         //Sign both of these transactions, but sign tx1 with a sig that
@@ -638,7 +638,7 @@ var hedgehog = {
         }
         tx1.vout.push({ value: 240, scriptPubKey: "51024e73" });
         // console.log( 88, JSON.stringify( tx1 ) );
-        // console.log( 89, "tx0:", JSON.stringify( tx0 ) );
+        console.log( 89, "tx0:", JSON.stringify( tx0 ) );
         // console.log( 90, "tx1:", JSON.stringify( tx1 ) );
 
         //validate the signatures by which the sender creates the new state
