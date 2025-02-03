@@ -705,7 +705,10 @@ var hedgehog = {
             var prev_tx0 = tapscript.Tx.create({
                 version: 3,
                 vin: [hedgehog.getVin( utxo_info[ "txid" ], utxo_info[ "vout" ], original_amnt, hedgehog.state[ chan_id ][ "multisig" ] )],
-                vout: [hedgehog.getVout( original_amnt - 240, prev_address )],
+                vout: [
+                    hedgehog.getVout( original_amnt - 240, prev_address ),
+                    {value: 240, scriptPubKey: "51024e73"},
+                ],
             });
             var prev_txid = tapscript.Tx.util.getTxid( prev_tx0 );
             var new_tx1 = tapscript.Tx.create({
@@ -2395,7 +2398,6 @@ var hedgehog = {
                         {value: 240, scriptPubKey: "51024e73"},
                     ],
                 });
-                console.log( 16, prev_tx0 ); //return here
                 prev_tx0s.push( prev_tx0 );
                 var prev_txid = tapscript.Tx.util.getTxid( prev_tx0 );
                 var new_tx1 = tapscript.Tx.create({
@@ -2406,7 +2408,6 @@ var hedgehog = {
                         {value: 240, scriptPubKey: "51024e73"},
                     ],
                 });
-                console.log( 18, new_tx1 );
                 new_tx1s.push( new_tx1 );
                 var new_tx1_txid = tapscript.Tx.util.getTxid( new_tx1 );
                 var new_first_from_htlc_tx = tapscript.Tx.create({
@@ -3311,7 +3312,6 @@ var hedgehog = {
                         {value: 240, scriptPubKey: "51024e73"},
                     ],
                 });
-                console.log( 17, prev_tx0 ); //return here
                 var prev_txid = tapscript.Tx.util.getTxid( prev_tx0 );
                 var new_tx1 = tapscript.Tx.create({
                     version: 3,
@@ -3322,7 +3322,6 @@ var hedgehog = {
                     ],
                 });
                 new_tx1s.push( new_tx1 );
-                console.log( 19, new_tx1 );
                 var new_tx1_txid = tapscript.Tx.util.getTxid( new_tx1 );
                 var new_first_from_htlc_tx = tapscript.Tx.create({
                     version: 3,
