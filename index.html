@@ -31,8 +31,9 @@
             // console.log( expected_C.toHex( true ) === C.toHex( true ) );
         </script>
         <script>
+            var allover_network = "regtest";
             var hedgehog = {
-                network: "testnet",
+                network: allover_network,
                 state: {},
                 keypairs: {},
                 state_obj: {
@@ -680,7 +681,6 @@
                             hedgehog.state[ chan_id ].alices_revocation_hashes.push( old_rev_hashes );
                             hedgehog.state[ chan_id ].bob_can_revoke.push( other_rev_info );
                         }
-                        console.log( 22, 'this one' );
                         if ( !skip_alert ) {return alert( `Your counterparty sent you invalid main-sig data so it will be ignored` );}
                         else return;
                     }
@@ -1478,7 +1478,6 @@
                                 hedgehog.state[ chid ].alices_revocation_hashes.push( old_rev_hashes );
                                 hedgehog.state[ chid ].bob_can_revoke.push( other_rev_info );
                             }
-                            console.log( 23, 'this one' );
                             return alert( `Your counterparty sent you invalid main-sig data so it will be ignored` );
                         }
 
@@ -1619,7 +1618,6 @@
                                 hedgehog.state[ chid ].alices_revocation_hashes.push( old_rev_hashes );
                                 hedgehog.state[ chid ].bob_can_revoke.push( other_rev_info );
                             }
-                            console.log( 24, 'this one' );
                             return alert( `Your counterparty sent you invalid main-sig data so it will be ignored` );
                         }
 
@@ -4560,11 +4558,6 @@
                 <center><div class="history">loading history...</div></center>
                 <center><button class="wallet_button eject">Eject</button></center>
             </div>
-            <!--             
-            <div>Balance</div>
-            <div><span class="balance">loading...</span></div>
-            <div class="wallet_btns"><button class="send_btn">Send</button><button class="receive_btn">Receive</button><button class="eject_btn">Eject</button></div>
-            -->
         </div>
         <div class="ejection_buttons admin_only hidden"></div>
         <script>
@@ -4664,7 +4657,7 @@
                         channel_size: 100_000,
                         minimum: 3,
                         maximum: 20,
-                        address_type: "regtest",
+                        address_type: allover_network,
                         relays: ["wss://nostrue.com"],
                         privkey: hedgehog_factory.bytesToHex( window.crypto.getRandomValues( new Uint8Array( 32 ) ) ),
                         pubkey: null,
@@ -5035,9 +5028,9 @@
 
                     // Have every party independently create a 10 step “exit ladder” using my tornado factory protocol so that the money for each participant is guaranteed to end up in a 2 of 2 multisig “owned by” that participant’s pubkey and the admin's
                     var every_partys_2_of_2 = [];
-                    peers.forEach( key => {
+                    all_peers.forEach( ( key, index ) => {
                         var admins_pubkey_for_hedgehog_channel = state.admin_pubkeys_for_hedgehog_channels[ key ];
-                        var two_of_two_script = [ admins_pubkey_for_hedgehog_channel, "OP_CHECKSIGVERIFY", key, "OP_CHECKSIG" ];
+                        var two_of_two_script = [ key, "OP_CHECKSIGVERIFY", admins_pubkey_for_hedgehog_channel, "OP_CHECKSIG" ];
                         var two_of_two_tree = [ tapscript.Tap.encodeScript( two_of_two_script ) ];
                         var two_of_two_addy = hedgehog.makeAddress( [ two_of_two_script ] );
                         every_partys_2_of_2.push( two_of_two_addy );
@@ -5096,7 +5089,6 @@
                         rounds.push( round );
                         round_sigs.push( sigs );
                     }
-                    // Have every party sign transactions allowing every other party to exit into that multisig
                     //allow each user to unilaterally exit in each round
                     //each user needs the ability to withdraw from the midstate in any round
                     //therefore, I must make n*n*n sigs -- there are n users who need to exit
@@ -5204,8 +5196,7 @@
                     var opening_info_for_hedgehog_channels = state.opening_info_for_hedgehog_channels;
                     if ( !opening_info_for_hedgehog_channels.hasOwnProperty( pubkey ) ) opening_info_for_hedgehog_channels[ pubkey ] = [];
                     var i; for ( i=0; i<all_peers.length; i++ ) {
-                        var my_withdrawal_txids = state.withdrawal_txids[ my_usernum ];
-                        var txid = my_withdrawal_txids[ i ];
+                        var txid = state.withdrawal_txids[ i ][ my_usernum ];
                         var vout = 1;
                         var amnt = funding_amount + amount_per_user_to_cover_p2a_costs - 240 - 240;
                         var opening_info = await hedgehog.openChannel( push_all_funds_to_counterparty, bobs_pubkey_and_hash, null, null, null, null, null, privkey, [txid, vout, amnt] );
@@ -5324,6 +5315,8 @@
                     state.sorted_user_ejection_sigs = sorted_user_ejection_sigs;
                     sorted_connector_sigs = grouped_2;
                     state.sorted_connector_sigs = sorted_connector_sigs;
+                    var sigs_to_send = {}
+                    all_peers.forEach( peer => sigs_to_send[ peer ] = {});
                     var i; for ( i=0; i<ejection_txs.length; i++ ) {
                         //i represents a round
                         var sig_array_1 = sorted_user_ejection_sigs[ i ];
@@ -5333,6 +5326,8 @@
                             var ejection_tx = ejection_txs[ i ][ j ];
                             var ejection_sigs_for_this_user = sig_array_1[ j ];
                             var connector_sigs_for_this_user = sig_array_2[ j ];
+                            if ( !j ) sigs_to_send[ all_peers[ j ] ][ "ejection_sigs" ] = sig_array_1[ j ];
+                            if ( !j ) sigs_to_send[ all_peers[ j ] ][ "connector_sigs" ] = sig_array_2[ j ];
                             var midstate_tapleaf = midstate_trees[ i ][ j ];
                             var connector_tapleaf = tree[ 0 ];
                             var midstate_sighash = tapscript.Signer.taproot.hash( ejection_tx, 0, { extension: midstate_tapleaf });
@@ -5381,12 +5376,13 @@
                     // ensure each channel opening transaction is valid
                     var i; for ( i=0; i<all_peers.length; i++ ) {
                         //i represents the peer
-                        //you do not need to validate your own txs
+                        //you do not need to validate your own sigs
                         if ( !i ) continue;
                         var peer = all_peers[ i ];
                         var pubkey_i_am_using_in_this_channel = nobleSecp256k1.getPublicKey( who_should_pay[ peer ][ 3 ], true ).substring( 2 );
                         var j; for ( j=0; j<all_peers.length; j++ ) {
                             //j represents the channel being validated,
+                            //aka the round it get opened out during,
                             //keeping in mind that each party created n
                             //potential channels depending on which
                             //withdrawal tx he ends up getting, and we
@@ -5398,7 +5394,7 @@
                                 break;
                             }
                             //ensure each user signed correct info about their channel
-                            var txid_for_this_channel = state.withdrawal_txids[ i ][ j ];
+                            var txid_for_this_channel = state.withdrawal_txids[ j ][ i ];
                             channel_info[ "recipient_pubkey" ] = pubkey_i_am_using_in_this_channel;
                             channel_info.utxo_info[ "txid" ] = txid_for_this_channel;
                             channel_info.utxo_info[ "vout" ] = 1;
@@ -6038,8 +6034,8 @@
                     var preimage = nobleSecp256k1.utils.randomPrivateKey();
                     var htlc_hash = await hedgehog.sha256( preimage );
                     preimage = hedgehog.bytesToHex( preimage );
-                    showModal( `<p>Send this to your recipient:</p><p>{"preimage": "${preimage}", "admin": "whoever", "amnt": ${amnt}, "sender": "${hedgehog_factory.state[ state_id ].pubkey}"}</p>` );
                     await hedgehog.aliceSendsHtlc( state_id, amnt, htlc_hash );
+                    showModal( `<p>Send this to your recipient:</p><p>{"preimage": "${preimage}", "admin": "whoever", "amnt": ${amnt}, "sender": "${hedgehog_factory.state[ state_id ].pubkey}"}</p>` );
                     var state = hedgehog_factory.state[ state_id ];
                     await hedgehog_factory.waitSomeTime( 1000 );
                     var chan_id = state.opening_info_for_hedgehog_channels[ state.pubkey ][ 0 ].chan_id;
