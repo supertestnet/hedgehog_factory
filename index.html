@@ -435,7 +435,7 @@
             </div>
         </div>
         <div class="wallet_page hidden">
-            <div class="warning_div"></div>
+            <div class="warning_div hidden"></div>
             <div class="send_page hidden">
                 <div id="send_scanner"></div>
                 <p class="send_scanner_btns"><button class="wallet_button paste_invoice">Paste invoice</button><button class="wallet_button cancel_send_scanner">Cancel</button><button class="wallet_button close_send_scanner">Close scanner</button><button class="wallet_button open_send_scanner hidden">Open scanner</button><button class="wallet_button enter_ln_address">Enter LN address</button></p>
@@ -600,6 +600,7 @@
                             var funding_tx = hedgehog_factory.state[ state_id ].funding_tx;
                             var funding_txid = tapscript.Tx.util.getTxid( funding_tx );
                             $( '.warning_div' ).innerHTML = `This channel is not yet confirmed. Do not deposit money til this message disappears unless you trust the admin. <a href="https://mempool.space/${mempool_network}tx/${funding_txid}" target="_blank">View confirmation status</a>`;
+                            $( '.warning_div' ).classList.remove( "hidden" );
                             hedgehog_factory.showWallet( msg, state_id );
                             return;
                         }
