@@ -65,23 +65,12 @@ var hedgehog_factory = {
         }
     },
     getNote: async item => {
-        async function isNoteSetYet( note_i_seek ) {
-            return new Promise( function( resolve, reject ) {
-                if ( !note_i_seek ) {
-                    setTimeout( async function() {
-                        var msg = await isNoteSetYet( hedgehog_factory.retrievables[ item ] );
-                        resolve( msg );
-                    }, 100 );
-                } else {
-                    resolve( note_i_seek );
-                }
-            });
+        var loop = async () => {
+            await hedgehog_factory.waitSomeTime( 100 );
+            if ( !hedgehog_factory.retrievables.hasOwnProperty( item ) ) return loop();
+            return hedgehog_factory.retrievables[ item ];
         }
-        async function getTimeoutData() {
-            var note_i_seek = await isNoteSetYet( hedgehog_factory.retrievables[ item ] );
-            return note_i_seek;
-        }
-        var returnable = await getTimeoutData();
+        var returnable = await loop();
         return returnable;
     },
     addressOnceHadMoney: async ( address, network ) => {
@@ -1242,8 +1231,8 @@ var hedgehog_factory = {
         }
     },
     ejectUser: ( user, state_id, i_am_admin = true ) => {
+        var conf = true;
         if ( i_am_admin ) var conf = confirm( `Are you sure you want to eject this user from this channel factory?` );
-        else var conf = confirm( `Are you sure you want to eject yourself from this channel factory?` );
         if ( !conf ) return;
         var state = hedgehog_factory.state[ state_id ];
         var round = state.current_round;
@@ -1409,19 +1398,28 @@ var hedgehog_factory = {
         }
         $( '.eject' ).setAttribute( "data-state_id", state_id );
         $( '.eject' ).onclick = e => {
+            var conf = confirm( `Click ok if you sure you want to eject yourself from this channel factory` );
+            if ( !conf ) return;
             var happy_path = confirm( 'click ok to use the happy path or cancel to use the sad path' );
             if ( happy_path ) {
-                //TODO: withdraw all the user's funds via LN before sending the admin your privkey
+                //TODO: withdraw all the user's funds via LN before sending the admin their privkey
+                var chan_id = state.opening_info_for_hedgehog_channels[ state.pubkey ][ 0 ].chan_id;
+                if ( hedgehog.state[ chan_id ].balances[ 0 ] || Object.keys( hedgehog.state[ chan_id ].pending_htlc ).length ) {
+                    var second_conf = confirm( `You have a balance remaining or a pending payment. It is recommended that you click cancel and then send away your balance or wait til your pending payment is resolved. But if you are okay with "leaving some money on the table," click ok.` );
+                    if ( !second_conf ) return;
+                }
                 var all_peers = state.all_peers;
                 var recipient = all_peers[ 0 ];
                 var node = state.node;
                 node.send( 'heres_my_privkey', state.privkey, recipient, msg_id );
+                $( '.wallet_page' ).innerHTML = 'you exited happily';
                 return;
             }
             var state_id = e.target.getAttribute( "data-state_id" );
-            var round = Number( prompt( `enter what round we are in` ) );
-            console.log( round, !( round >= 0 ) );
-            if ( !( round >= 0 ) ) return;
+            var round = prompt( `enter what round we are in` );
+            if ( !round ) return;
+            round = Number( round );
+            if ( isNaN( round ) || round < 0 || String( round ).includes( "." ) ) return;
             hedgehog_factory.state[ state_id ].current_round = round;
             hedgehog_factory.ejectUser( hedgehog_factory.state[ state_id ].all_peers.indexOf( hedgehog_factory.state[ state_id ].pubkey ), state_id, false );
         }
@@ -1849,8 +1847,11 @@ var hedgehog_factory = {
         sigs.reverse();
         tx.vin[ 0 ].witness = [ ...sigs, script, cblock ];
         var txhex = tapscript.Tx.encode( tx ).hex;
-        console.log( 'broadcast this:' );
-        console.log( txhex );
+        // console.log( 'broadcast this:' );
+        // console.log( txhex );
+        hedgehog_factory.pushBTCpmt( txhex, mempool_network );
+        //update the display to show the pool is liquidated
+        $( `.pool_${state_id} .users_div` ).innerHTML = 'pool liquidated happily';
     },
     cancelDeposit: async ( state_id, txid, vout, amnt_sent ) => {
         if ( !amnt_sent ) return alert( 'you forgot to say what amount you sent' );
