@@ -347,7 +347,7 @@ var hedgehog_factory = {
         var sats_per_byte = 1;
         // Give everyone a change address to send the change to when creating the 1-or-2 output transaction
         //TODO: use a "real" change address
-        var change_address = "tb1phl9kvt953d9rwvwy322fjpdgf95wqvj0l9rhgfnwgknqgfcwdkwqwrfkf8";
+        var change_address = "tb1pj0rkn0qvvc5yg876qzh5ee56dutprku826ps3uantpx4vx3mujnq3u6uhm";
         var msg = JSON.stringify({
             type: "official_peers_and_utxos_list",
             value: { randomized_peers, utxos_for_protocol, sats_per_byte, change_address },
@@ -1599,16 +1599,47 @@ var hedgehog_factory = {
     },
     runInitiateHHReceive: async ( msg, state_id ) => {
         var json = JSON.parse( msg.dat );
-        //TODO: validate that the state_id exists
-        var state_id = json.msg.state_id;
-        var msg_id = state_id;
+        var recipient = msg.ctx.pubkey;
+        var recipient_state_id = json.msg.state_id;
+        var msg_id = recipient_state_id;
         var state = hedgehog_factory.state[ state_id ];
         var amnt = Number( json.msg.amnt );
         if ( !amnt || amnt < 0 ) return 'error';
         //TODO: ensure you have outgoing capacity
         var htlc_hash = json.msg.hash;
-        //TODO: ensure the hash for this request also matches one that is pending 
+        var amnt_expected = json.msg.amnt;
+        var forwarding_info = json.msg.forwarding_info;
+        //TODO: ensure decrypting and parsing the info won't crash my app
+        var decryption_key = json.msg.decryption_key;
+        var decrypted = await super_nostr.alt_decrypt( state.privkey, decryption_key, forwarding_info );
+        decrypted = JSON.parse( decrypted );
+        var forwarder_pubkey = decrypted[ "pubkey" ];
+        var forwarder_state_id = decrypted[ "state_id" ];
+        //ensure the forwarder exists and is one of your users
+        if ( !hedgehog_factory.state.hasOwnProperty( forwarder_state_id ) || hedgehog_factory.state[ forwarder_state_id ].all_peers.indexOf( forwarder_pubkey ) < 0 ) {
+            var node = state.node;
+            //TODO: ensure the recipient does something if they see this message
+            node.send( 'forwarder_doesnt_exist', '', recipient, recipient_state_id );
+            return;
+        }
+        //ensure the hash for this request also matches one that is pending 
         //in the sender's channel
+        var forwarder_chan_id = hedgehog_factory.state[ forwarder_state_id ].opening_info_for_hedgehog_channels[ forwarder_pubkey ][ 0 ].chan_id;
+        var forwarder_channel = hedgehog.state[ forwarder_chan_id ];
+        if ( !Object.keys( forwarder_channel.pending_htlc ).length || forwarder_channel.pending_htlc.from === "bob" || forwarder_channel.pending_htlc.htlc_hash !== htlc_hash || forwarder_channel.pending_htlc.amnt_to_display !== amnt_expected ) {
+            var node = state.node;
+            //TODO: ensure the recipient does something if they see this message
+            node.send( 'forwarders_htlc_doesnt_exist', '', recipient, recipient_state_id );
+            return;
+        }
+        if ( !hedgehog_factory.state.hasOwnProperty( recipient_state_id ) ) {
+            var node = state.node;
+            //TODO: ensure the recipient does something if they see this message
+            node.send( 'provide_ln_invoice', JSON.stringify({amnt: amnt_expected, hash: htlc_hash}), recipient, recipient_state_id );
+            return;
+        }
+        //check if the recipient's state_id exists, and if not,
+        //ask them for an LN invoice instead
         hedgehog.bobSendsHtlc( msg_id, amnt, htlc_hash, null, msg.ctx.pubkey );
     },
     runInitiateLNPayment: async ( msg, state_id ) => {
@@ -1720,9 +1751,22 @@ var hedgehog_factory = {
         var msg_id = state_id;
         var state = hedgehog_factory.state[ state_id ];
         var preimage = json.msg.preimage;
-        var sender = json.msg.sender;
+        var htlc_hash = await hedgehog.sha256( hedgehog.hexToBytes( preimage ) );
+        var decryption_key = json.msg.decryption_key;
+        var forwarding_info = json.msg.forwarding_info;
+        //TODO: ensure decrypting this and parsing it doesn't crash my app
+        var decrypted = await super_nostr.alt_decrypt( state.privkey, decryption_key, forwarding_info );
+        decrypted = JSON.parse( decrypted );
+        var forwarder_pubkey = decrypted[ "pubkey" ];
+        var forwarder_state_id = decrypted[ "state_id" ];
+        //ensure the forwarder exists and is one of your users
+        if ( !hedgehog_factory.state.hasOwnProperty( forwarder_state_id ) || hedgehog_factory.state[ forwarder_state_id ].all_peers.indexOf( forwarder_pubkey ) < 0 ) return;
+        //ensure the hash for this request also matches one that is pending 
+        //in the sender's channel
+        var forwarder_chan_id = hedgehog_factory.state[ forwarder_state_id ].opening_info_for_hedgehog_channels[ forwarder_pubkey ][ 0 ].chan_id;
+        var forwarder_channel = hedgehog.state[ forwarder_chan_id ];
+        if ( !Object.keys( forwarder_channel.pending_htlc ).length || forwarder_channel.pending_htlc.from === "bob" || forwarder_channel.pending_htlc.htlc_hash !== htlc_hash ) return;
         var recipient = msg.ctx.pubkey;
-        //TODO: ensure the sender has a pending htlc for the same amount + payment hash
         var chan_ids = [];
         var opening_info = state.opening_info_for_hedgehog_channels[ recipient ];
         opening_info.forEach( opener => chan_ids.push( opener.chan_id ) );
@@ -1859,6 +1903,7 @@ var hedgehog_factory = {
     },
     sendViaHedgehog: async state_id => {
         if ( !state_id ) return alert( `you forgot the state_id` );
+        var state = hedgehog_factory.state[ state_id ];
         var amnt = Number( prompt( `enter how many sats you want to send` ) );
         if ( !amnt || amnt < 1 ) return alert( `error` );
         //TODO: ensure the amount is less than what you have
@@ -1866,8 +1911,24 @@ var hedgehog_factory = {
         var htlc_hash = await hedgehog.sha256( preimage );
         preimage = hedgehog.bytesToHex( preimage );
         await hedgehog.aliceSendsHtlc( state_id, amnt, htlc_hash );
-        showModal( `<p>Send this to your recipient:</p><p>{"preimage": "${preimage}", "admin": "whoever", "amnt": ${amnt}, "sender": "${hedgehog_factory.state[ state_id ].pubkey}"}</p>` );
-        var state = hedgehog_factory.state[ state_id ];
+        var encryption_key = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() );
+        var decryption_key = nobleSecp256k1.getPublicKey( encryption_key, true ).substring( 2 );
+        var forwarding_info = await super_nostr.alt_encrypt( encryption_key, state.all_peers[ 0 ], JSON.stringify({pubkey: state.pubkey, state_id}) );
+        showModal( `
+            <p>
+                Send this to your recipient:
+            </p>
+            <p>
+                ${JSON.stringify({
+                    preimage,
+                    admin: state.all_peers[ 0 ],
+                    relays: [ "wss://nostrue.com" ],
+                    amnt,
+                    decryption_key,
+                    forwarding_info,
+                })}
+            </p>
+        ` );
         await hedgehog_factory.waitSomeTime( 1000 );
         var chan_id = state.opening_info_for_hedgehog_channels[ state.pubkey ][ 0 ].chan_id;
         var pending_htlc = hedgehog.state[ chan_id ].pending_htlc;
@@ -1919,17 +1980,23 @@ var hedgehog_factory = {
         //TODO: ensure the amount is less than your receiving capacity
         var preimage = info_from_sender.preimage;
         var hash = await hedgehog.sha256( hedgehog.hexToBytes( preimage ) );
-        var sender = info_from_sender.sender;
         showModal( `<p>loading...</p>` );
         var state = hedgehog_factory.state[ state_id ];
         var all_peers = state.all_peers;
-        var recipient = all_peers[ 0 ];
+        var forwarding_info = info_from_sender.forwarding_info;
+        console.log( 10, info_from_sender, forwarding_info );
+        var recipient = info_from_sender.admin;
+        var decryption_key = info_from_sender.decryption_key;
+        var relays = info_from_sender.relays;
+        //TODO: use the relays given to you by the sender
+        console.log( 'relays:', relays );
         var msg = JSON.stringify({
             type: "initiate_hh_receive",
             msg: {
                 amnt,
                 state_id,
-                sender,
+                decryption_key,
+                forwarding_info,
                 hash,
             }
         });
@@ -1944,7 +2011,15 @@ var hedgehog_factory = {
             var chan_id = state.opening_info_for_hedgehog_channels[ state.pubkey ][ 0 ].chan_id;
             if ( Object.keys( hedgehog.state[ chan_id ].pending_htlc ).length && hedgehog.state[ chan_id ].pending_htlc[ "htlc_hash" ] === hash ) {
                 console.log( 'sending preimage to admin' );
-                node.send( 'hh_preimage', JSON.stringify({msg: {preimage, sender, state_id}}), recipient, msg_id );
+                node.send( 'hh_preimage',
+                    JSON.stringify({
+                        msg: {
+                            preimage,
+                            decryption_key,
+                            forwarding_info,
+                            state_id,
+                        }
+                    }), recipient, msg_id );
                 return;
             }
             await hedgehog_factory.waitSomeTime( 1000 );
