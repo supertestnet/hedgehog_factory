@@ -737,7 +737,6 @@ var hedgehog = {
                     hedgehog.state[ chan_id ].alices_revocation_hashes.push( old_rev_hashes );
                     hedgehog.state[ chan_id ].bob_can_revoke.push( other_rev_info );
                 }
-                console.log( 11, 'this one' );
                 if ( !skip_alert ) {return alert( `Your counterparty sent you invalid cond-sig data (invalid sig) so it will be ignored` );}
                 else return;
             }
@@ -840,7 +839,11 @@ var hedgehog = {
                 conditional_revocation_tx: tapscript.Tx.encode( new_tx1 ).hex,
             }
         }
-        if ( full_revocation_is_necessary ) hedgehog.state[ chan_id ].txids_to_watch_for[ doubly_prev_txid ][ "full_revocation_tx" ] = tapscript.Tx.encode( tx2 ).hex;
+        if ( full_revocation_is_necessary ) {
+            //TODO: figure out what's wrong with this: I once got an error here where I was sent a full revocation preimage so I tried to add a full revocation penalty tx to the txids_to_watch_for array; but it didn't work because no entry existed for the double_prev_txid. I modified this code so that if there's *not* such a txid, it adds one, but then I thought, wait...if I'm getting a full revocation preimage, there *should* be a txid for which I'm already watching, because I *should* have a conditional revocation "non-penalty" tx for it. So what gives? How can someone fully revoke a state for a transaction he has not yet "conditionally" revoked? That shouldn't be possible, I don't think, so there must be a bug.
+            if ( !hedgehog.state[ chan_id ].txids_to_watch_for.hasOwnProperty( doubly_prev_txid ) ) hedgehog.state[ chan_id ].txids_to_watch_for[ doubly_prev_txid ] = {}
+            hedgehog.state[ chan_id ].txids_to_watch_for[ doubly_prev_txid ][ "full_revocation_tx" ] = tapscript.Tx.encode( tx2 ).hex;
+        }
 
         //update the balances
         if ( am_alice ) {
@@ -1200,8 +1203,8 @@ var hedgehog = {
             });
             node.send( 'initiate_hh_payment', msg, recipient, msg_id );
         }
-        var preparsed_info_from_bob = await hedgehog_factory.getNote( secret );
-        delete hedgehog_factory.retrievables[ secret ];
+        var preparsed_info_from_bob = await hedgehog_factory.getNote( secret, msg_id );
+        delete hedgehog_factory.state[ msg_id ].retrievables[ secret ];
         var { secret_for_responding_to_bob } = JSON.parse( preparsed_info_from_bob );
         var info_from_bob = JSON.parse( preparsed_info_from_bob )[ "data_for_alice" ];
         var { bobs_first_htlc_sigs, bobs_second_htlc_sigs, bobs_conditional_first_htlc_sigs, bobs_conditional_second_htlc_sigs } = info_from_bob;
@@ -1291,6 +1294,7 @@ var hedgehog = {
                 from: "alice",
                 now: Math.floor( Date.now() / 1000 ),
                 amnt,
+                amnt_to_display: amnt_before_any_changes,
                 htlc_preimage,
                 htlc_hash,
                 force_close_tx: prev_force_close_tx,
@@ -1310,7 +1314,7 @@ var hedgehog = {
                 invoice: null,
             }
 
-            if ( invoice_to_pay ) hedgehog.state[ chid ].pending_htlc.bolt11 = invoice_to_pay;
+            if ( invoice_to_pay ) hedgehog.state[ chid ].pending_htlc.invoice = invoice_to_pay;
 
             //ensure the balances_before_most_recent_send are updated to the current state
             //so that, after the htlc gets settled, Bob can add amnt to
@@ -1323,6 +1327,23 @@ var hedgehog = {
             //and remember to also tell them whatever amount you are sending so
             //they can set up a scenario where they gain that much money if they
             //disclose the preimage to bob
+
+            if ( !invoice_to_pay ) {
+                brick_wallet.state.history[ htlc_hash ] = {
+                    state_id: msg_id,
+                    type: "outgoing_pending",
+                    payment_hash: htlc_hash,
+                    invoice: "none -- this is a hedghog payment",
+                    bolt11: "none -- this is a hedghog payment",
+                    description: "hedgehog payment",
+                    settled_at: Math.floor( Date.now() / 1000 ),
+                    fees_paid: 0,
+                    amount: amnt_before_any_changes * 1000,
+                    preimage: htlc_preimage,
+                    detail_hidden: true,
+                }
+                brick_wallet.parseHistory();
+            }
         }
     },
     bobReceivesHTLC: async ( data, secret_for_responding_to_alice, alices_nostr_pubkey, invoice_to_pay ) => {
@@ -1340,7 +1361,11 @@ var hedgehog = {
 
         var amnt = data[ "amnt" ];
         if ( amnt < 330 ) return alert( `the dust limit is 330 sats and this htlc is worth only ${amnt} sats so we reject it` );
-        if ( amnt > hedgehog.state[ chan_id ].balances[ 0 ] ) return alert( `alice tried to send you more money than she has so we reject it` );
+
+        if ( !hedgehog.state[ chan_id ].i_was_last_to_send ) var balance_to_check_against = hedgehog.state[ chan_id ].balances_before_most_recent_receive[ 0 ];
+        else var balance_to_check_against = hedgehog.state[ chan_id ].balances[ 0 ];
+        if ( amnt > balance_to_check_against ) return alert( `alice tried to send you more money than she has so we reject it` );
+
         //TODO: ensure checking the invoice here doesn't crash my app
         if ( invoice_to_pay ) {
             var invoice_amt = hedgehog.getInvoiceAmount( invoice_to_pay );
@@ -1606,7 +1631,6 @@ var hedgehog = {
                         hedgehog.state[ chid ].alices_revocation_hashes.push( old_rev_hashes );
                         hedgehog.state[ chid ].bob_can_revoke.push( other_rev_info );
                     }
-                    console.log( 12, 'this one' );
                     return alert( `Your counterparty sent you invalid cond-sig data (invalid sig) so it will be ignored` );
                 }
             }
@@ -1634,8 +1658,8 @@ var hedgehog = {
             }
         });
         node.send( 'secret_you_need', msg, recipient, msg_id );
-        var preparsed_info_from_alice = await hedgehog_factory.getNote( secret_for_responding_to_bob );
-        delete hedgehog_factory.retrievables[ secret_for_responding_to_bob ];
+        var preparsed_info_from_alice = await hedgehog_factory.getNote( secret_for_responding_to_bob, msg_id );
+        delete hedgehog_factory.state[ msg_id ].retrievables[ secret_for_responding_to_bob ];
         var data = JSON.parse( preparsed_info_from_alice );
 
         // alert( `send the data in your console to alice and then click ok` );
@@ -1720,7 +1744,6 @@ var hedgehog = {
                         hedgehog.state[ chid ].alices_revocation_hashes.push( old_rev_hashes );
                         hedgehog.state[ chid ].bob_can_revoke.push( other_rev_info );
                     }
-                    console.log( 13, 'this one' );
                     return alert( `Your counterparty sent you invalid cond-sig data (invalid sig) so it will be ignored` );
                 }
                 var conditional_cosignature = tapscript.Signer.taproot.sign( privkey, new_tx1, 0, { extension: new_tx1_target }).hex;
@@ -1892,6 +1915,7 @@ var hedgehog = {
                 htlc_preimage: null,
                 htlc_hash,
                 force_close_tx: tapscript.Tx.encode( tx0 ).hex,
+                outgoing_ln_payment_is_pending: false,
                 //TODO: change the value of when_to_force_close to something more reasonable
                 //than 10 blocks after the htlc is created
                 when_to_force_close: 10,
@@ -1980,9 +2004,9 @@ var hedgehog = {
             node.send( 'get_revocation_data', msg, alices_nostr_pubkey, msg_id );
         }
         // console.log( 5 );
-        var preparsed_info_from_alice = await hedgehog_factory.getNote( secret );
+        var preparsed_info_from_alice = await hedgehog_factory.getNote( secret, msg_id );
         // console.log( 6 );
-        delete hedgehog_factory.retrievables[ secret ];
+        delete hedgehog_factory.state[ msg_id ].retrievables[ secret ];
         var { alices_revocation_hash, secret_for_responding_to_alice } = JSON.parse( preparsed_info_from_alice );
         // console.log( JSON.stringify({ chan_id, amnt }) );
         // var alices_revocation_data = JSON.parse( prompt( 'send the data in your console to alice and enter her reply here -- she should run hedgehog.aliceReceivesHTLC()' ) );
@@ -2594,9 +2618,9 @@ var hedgehog = {
         // console.log( 7 );
         node.send( 'secret_you_need', msg, recipient, msg_id );
         // console.log( 8 );
-        var preparsed_info_from_alice = await hedgehog_factory.getNote( secret_2_for_responding_to_bob );
+        var preparsed_info_from_alice = await hedgehog_factory.getNote( secret_2_for_responding_to_bob, msg_id );
         // console.log( 9 );
-        delete hedgehog_factory.retrievables[ secret_2_for_responding_to_bob ];
+        delete hedgehog_factory.state[ msg_id ].retrievables[ secret_2_for_responding_to_bob ];
 
         var { data, secret_2_for_responding_to_alice } = JSON.parse( preparsed_info_from_alice );
 
@@ -2836,44 +2860,7 @@ var hedgehog = {
         // console.log( 'htlc sent!' );
         // console.log( 75, hedgehog.state[ chan_id ].balances );
 
-        if ( invoice ) {
-            //start listening for the invoice to be paid
-            var loop = async () => {
-                //TODO: if the invoice is not paid quickly and Alice won't cancel it, force close
-                console.log( 'checking invoice status' );
-                var delay_tolerance = 10;
-                var nwc_info = nwcjs.processNWCstring( nwc_string );
-                var invoice_status_info = await nwcjs.checkInvoice( nwc_info, invoice, delay_tolerance );
-                if ( invoice_status_info === "timed out" ) return alert( `you encountered an undefined error while processing this deposit request, try again:\n\n${JSON.stringify( invoice_status_info )}` );
-                if ( "result_type" in invoice_status_info && invoice_status_info[ "result_type" ] !== "lookup_invoice" ) return alert( `your wallet encountered an undefined error while processing this deposit request, try again:\n\n${JSON.stringify( invoice_status_info )}` );
-                if ( "error" in invoice_status_info && invoice_status_info[ "error" ] ) return alert( `error processing this deposit request: ${JSON.stringify( invoice_status_info[ "error" ] )} -- please try again` );
-                if ( invoice_status_info.result.settled_at ) {
-                    //resolve the htlc
-                    var all_sigs_and_stuff = [];
-                    var i; for ( i=0; i<chan_ids.length; i++ ) {
-                        var chan_id = chan_ids[ i ];
-                        var sigs_and_stuff = await hedgehog.checkIfOutgoingHTLCIsSettled( chan_id, invoice_status_info.result.preimage );
-                        all_sigs_and_stuff.push( sigs_and_stuff );
-                    }
-                    var msg = JSON.stringify({
-                        type: "payment_complete",
-                        msg: {
-                            state_id,
-                            preimage: invoice_status_info.result.preimage,
-                            sigs_and_stuff: all_sigs_and_stuff,
-                        }
-                    });
-                    var node = state.node;
-                    node.send( 'payment_complete', msg, recipient, msg_id );
-                    return;
-                }
-                var loop_delay = state.loop_delay;
-                await super_nostr.waitSomeSeconds( loop_delay );
-                return loop();
-                //Now the htlc is resolved -- the checkIfOutgoingHTLCIsSettled() function sends the amount that *was* in pending_htlc to Alice after Bob gets the preimage, and then it clears out pending_htlc -- so the htlc is resolved
-            }
-            await loop();
-        }
+        return true;
 
         //The above sets up a listener to do the rest, namely, it gets a preimage
         //from the nwc funding source and
@@ -2913,7 +2900,10 @@ var hedgehog = {
         var amnt_before_any_changes = amnt;
         var amnt_to_be_displayed_in_invoice = amnt;
         if ( amnt < 330 ) return alert( `the dust limit is 330 sats and this htlc is worth only ${amnt} sats so we reject it` );
-        if ( amnt > hedgehog.state[ chan_id ].balances[ 1 ] ) return alert( `bob tried to send you more money than he has so we reject it` );
+
+        if ( !hedgehog.state[ chan_id ].i_was_last_to_send ) var balance_to_check_against = hedgehog.state[ chan_id ].balances_before_most_recent_receive[ 1 ];
+        else var balance_to_check_against = hedgehog.state[ chan_id ].balances[ 1 ];
+        if ( amnt > balance_to_check_against ) return alert( `bob tried to send you more money than he has so we reject it` );
 
         //give Bob a revocation hash
         var alices_revocation_preimage = hedgehog.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() );
@@ -2935,9 +2925,9 @@ var hedgehog = {
             // console.log( 13, `waiting for this secret:`, secret_for_responding_to_alice );
             node.send( 'secret_you_need', msg, recipient, msg_id );
             // console.log( 14 );
-            var preparsed_info_from_bob = await hedgehog_factory.getNote( secret_for_responding_to_alice );
+            var preparsed_info_from_bob = await hedgehog_factory.getNote( secret_for_responding_to_alice, msg_id );
             // console.log( 15, preparsed_info_from_bob );
-            delete hedgehog_factory.retrievables[ secret_for_responding_to_alice ];
+            delete hedgehog_factory.state[ msg_id ].retrievables[ secret_for_responding_to_alice ];
             var data = JSON.parse( preparsed_info_from_bob )[ "data" ];
             var secret_2_for_responding_to_bob = JSON.parse( preparsed_info_from_bob )[ "secret_2_for_responding_to_bob" ];
         } else {
@@ -3455,8 +3445,8 @@ var hedgehog = {
                 }
             });
             node.send( 'secret_you_need', msg, recipient, msg_id );
-            var preparsed_info_from_bob = await hedgehog_factory.getNote( secret_2_for_responding_to_alice );
-            delete hedgehog_factory.retrievables[ secret_2_for_responding_to_alice ];
+            var preparsed_info_from_bob = await hedgehog_factory.getNote( secret_2_for_responding_to_alice, msg_id );
+            delete hedgehog_factory.state[ msg_id ].retrievables[ secret_2_for_responding_to_alice ];
             var data = JSON.parse( preparsed_info_from_bob );
         } else {
             console.log( `send this data to bob:` );
@@ -3731,7 +3721,7 @@ var hedgehog = {
                 time_to_wait_after_preimage_is_received: 2016,
                 invoice: null,
             }
-            if ( invoice ) hedgehog.state[ chid ].pending_htlc.bolt11 = invoice;
+            if ( invoice ) hedgehog.state[ chid ].pending_htlc.invoice = invoice;
         }
 
         //test the following scenarios:
@@ -3911,4 +3901,5 @@ var hedgehog = {
         //TODO: set up a listener so that if 2016 blocks go by we force close
         return `that went well, now your counterparty should run hedgehog.checkIfOutgoingHTLCIsSettled("${chan_id}")`;
     },
+    cancelHTLC: async chan_id => hedgehog.state[ chan_id ].pending_htlc = {},
 }
