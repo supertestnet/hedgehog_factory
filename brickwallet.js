@@ -99,6 +99,16 @@ var brick_wallet = {
                 arrow = `<span class="noselect arrow outgoing_arrow">&#8599;</span>`;
                 incoming_or_outgoing = "outgoing_tx";
             }
+            if ( tx[ "type" ] === "outgoing_pending" ) {
+                arrow = `<span class="noselect arrow pending_clock">&#9202;</span>`;
+                incoming_or_outgoing = "outgoing_pending_tx";
+            }
+            var cancellable_div = `
+                <div class="tx_detail">
+                    <span>Cancel?</span><span><button class="cancel_pending" onclick="hedgehog_factory.cancelHTLC( '${tx[ "state_id" ]}' );">Cancel</button></span>
+                </div>
+            `;
+            if ( tx[ "type" ] !== "outgoing_pending" ) cancellable_div = ``;
             var desc_div = `
                 <div class="tx_detail_big">
                     <p style="font-weight: bold;">Description</p>
@@ -140,6 +150,7 @@ var brick_wallet = {
                         <span class="noselect tx_amt" data-sats="${Math.floor( ( tx[ "amount" ] + tx[ "fees_paid" ] ) / 1000 )}">${Math.floor( ( tx[ "amount" ] + tx[ "fees_paid" ] ) / 1000 )} sats</span>
                     </div>
                     <div class="hidable_tx_data ${hidden_or_shown}">
+                        ${cancellable_div}
                         <div class="tx_detail">
                             <span>Amount</span><span>${Math.floor( tx[ "amount" ] / 1000 )} sats</span>
                         </div>
