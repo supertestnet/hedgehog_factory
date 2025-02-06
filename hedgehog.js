@@ -1360,6 +1360,7 @@ var hedgehog = {
         if ( Object.keys( hedgehog.state[ chan_id ].pending_htlc ).length ) return alert( `you have a pending htlc, and you cannot receive money in this channel while you have one...clear it before proceeding` );
 
         var amnt = data[ "amnt" ];
+        var amnt_before_any_changes = amnt;
         if ( amnt < 330 ) return alert( `the dust limit is 330 sats and this htlc is worth only ${amnt} sats so we reject it` );
 
         if ( !hedgehog.state[ chan_id ].i_was_last_to_send ) var balance_to_check_against = hedgehog.state[ chan_id ].balances_before_most_recent_receive[ 0 ];
@@ -1912,6 +1913,7 @@ var hedgehog = {
                 from: "alice",
                 now: Math.floor( Date.now() / 1000 ),
                 amnt,
+                amnt_to_display: amnt_before_any_changes,
                 htlc_preimage: null,
                 htlc_hash,
                 force_close_tx: tapscript.Tx.encode( tx0 ).hex,
@@ -2819,6 +2821,7 @@ var hedgehog = {
                 from: "bob",
                 now: Math.floor( Date.now() / 1000 ),
                 amnt,
+                amnt_to_display: amnt_before_any_changes,
                 htlc_preimage,
                 htlc_hash,
                 force_close_tx: prev_force_close_tx,
