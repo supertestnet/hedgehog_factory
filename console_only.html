@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, user-scalable=no">
+        <script src="https://cdn.jsdelivr.net/gh/mebjas/html5-qrcode@master/minified/html5-qrcode.min.js"></script>
+        <script>var allover_address_type = "regtest";</script>
+        <script>var mempool_network = "testnet4/";</script>
+        <!-- <script src="https://supertestnet.github.io/hedgehog_factory/hedgehog_factory.js"></script> -->
+        <script src="file:///home/supertestnet/bitcoin_projects/channel_service/hedgehog_factory_console_version.js"></script>
+        <!-- <script src="https://supertestnet.github.io/hedgehog_factory/brickwallet.js"></script> -->
+        <script src="file:///home/supertestnet/bitcoin_projects/channel_service/brickwallet_console_version.js"></script>
+        <script src="https://supertestnet.github.io/hedgehog-advanced/tapscript.js"></script>
+        <!-- <script src="https://supertestnet.github.io/hedgehog_factory/hedgehog.js"></script> -->
+        <script src="file:///home/supertestnet/bitcoin_projects/channel_service/hedgehog_console_version.js"></script>
+        <script src="https://supertestnet.github.io/hedgehog-advanced/rmd160.js"></script>
+        <!-- <script src="https://supertestnet.github.io/hedgehog_factory/balance.js"></script> -->
+        <script src="file:///home/supertestnet/bitcoin_projects/channel_service/balance_console_version.js"></script>
+        <script src="https://supertestnet.github.io/bitcoin-chess/js/qrcode.js"></script>
+        <script src="https://supertestnet.github.io/blind-sig-js/blindSigJS.js"></script>
+        <script src="https://supertestnet.github.io/bitcoin-chess/js/bolt11.js"></script>
+        <script>var nostr_p2p = null;</script>
+        <script src="https://supertestnet.github.io/nostr_p2p/nostr_p2p.js"></script>
+        <script src="https://supertestnet.github.io/bankify/super_nostr.js"></script>
+        <script src="https://supertestnet.github.io/nwcjs/nwcjs.js"></script>
+        <!-- <script src="https://unpkg.com/@cmdcode/tapscript@1.5.1"></script> -->
+        <script src="https://bundle.run/noble-secp256k1@1.2.14"></script>
+        <script src="https://bundle.run/bech32@2.0.0"></script>
+        <script>
+            var url_params = {}
+            var hash_arr = window.location.href.substring( window.location.href.indexOf( "#" ) ).split( "#" );
+            hash_arr.splice( 0, 1 );
+            hash_arr.forEach( item => {
+                var vals = item.split( "=" );
+                url_params[ vals[ 0 ] ] = vals[ 1 ];
+            });
+        </script>
+    </head>
+    <body>
+        <script>
+            if ( url_params.hasOwnProperty( "ceremony" ) && url_params.hasOwnProperty( "routing_node" ) ) hedgehog_factory.beginAsUser( url_params[ "ceremony" ], url_params[ "routing_node" ] );
+        </script>
+    </body>
+</html>
