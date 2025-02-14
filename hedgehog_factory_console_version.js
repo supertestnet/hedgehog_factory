@@ -2668,8 +2668,8 @@ var hedgehog_factory = {
         var nevent = bech32.bech32.encode( prefix, bech32.bech32.toWords( bytes ), 100_000 );
         return nevent;
     },
-    runServer: async api_key => {
-        var privkey = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() );
+    runServer: async ( apikey, privkey ) => {
+        if ( !privkey ) privkey = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() );
         var pubkey = nobleSecp256k1.getPublicKey( privkey, true ).substring( 2 );
         var relays = [ "wss://nostrue.com" ];
         var listenFunction = async socket => {
@@ -2773,14 +2773,18 @@ var hedgehog_factory = {
                 super_nostr.sendEvent( event, relays[ 0 ] );
             }
             if ( json.type === "get_balance" ) {
+                var claimed_apikey = json.value.apikey;
+                var real_apikey = apikey;
+                if ( claimed_apikey !== real_apikey ) return console.log( 'someone passed an api key that did not match what was expected' );
                 var secret = json.value.secret;
-                var msg = await super_nostr.alt_encrypt( privkey, alices_pubkey, JSON.stringify({
+                var plaintext = {
                     type: "secret_you_need",
                     secret,
                     value: {
-                        thing_needed: brick_wallet.bal,
+                        thing_needed: balance.bal,
                     },
-                }) );
+                }
+                var msg = await super_nostr.alt_encrypt( privkey, alices_pubkey, JSON.stringify( plaintext ) );
                 var event = await super_nostr.prepEvent( privkey, msg, 4, [ [ "p", event.pubkey ] ] );
                 super_nostr.sendEvent( event, relays[ 0 ] );
             }
@@ -2790,12 +2794,6 @@ var hedgehog_factory = {
         await hedgehog_factory.waitSomeTime( 2000 );
         console.log( `ready!` );
         var nprofile = hedgehog_factory.convertPubkeyAndRelaysToNprofile( "nprofile", pubkey, relays );
-        console.log( 'your nprofile:' );
-        console.log( nprofile );
-        console.log( 'your api key:' );
-        console.log( apikey );
-        console.log( `your nprofile is listening for commands on nostr. Include your apikey in your messages like this:` );
-        console.log( `node index.js get_balance --nprofile=${nprofile} --apikey=${apikey}` );
         return nprofile;
     },
     countPresent: async state_id => {
