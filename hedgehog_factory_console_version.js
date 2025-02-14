@@ -2668,7 +2668,7 @@ var hedgehog_factory = {
         var nevent = bech32.bech32.encode( prefix, bech32.bech32.toWords( bytes ), 100_000 );
         return nevent;
     },
-    runServer: async () => {
+    runServer: async api_key => {
         var privkey = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() );
         var pubkey = nobleSecp256k1.getPublicKey( privkey, true ).substring( 2 );
         var relays = [ "wss://nostrue.com" ];
@@ -2778,8 +2778,12 @@ var hedgehog_factory = {
         await hedgehog_factory.waitSomeTime( 2000 );
         console.log( `ready!` );
         var nprofile = hedgehog_factory.convertPubkeyAndRelaysToNprofile( "nprofile", pubkey, relays );
-        console.log( 'my nprofile:' );
+        console.log( 'your nprofile:' );
         console.log( nprofile );
+        console.log( 'your api key:' );
+        console.log( apikey );
+        console.log( `your nprofile is listening for commands on nostr. Include your apikey in your messages like this:` );
+        console.log( `node index.js get_balance --apikey=${apikey}` );
         return nprofile;
     },
     countPresent: async state_id => {
