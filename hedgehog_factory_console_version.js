@@ -2772,6 +2772,18 @@ var hedgehog_factory = {
                 var event = await super_nostr.prepEvent( privkey, msg, 4, [ [ "p", event.pubkey ] ] );
                 super_nostr.sendEvent( event, relays[ 0 ] );
             }
+            if ( json.type === "get_balance" ) {
+                var secret = json.value.secret;
+                var msg = await super_nostr.alt_encrypt( privkey, alices_pubkey, JSON.stringify({
+                    type: "secret_you_need",
+                    secret,
+                    value: {
+                        thing_needed: brick_wallet.bal,
+                    },
+                }) );
+                var event = await super_nostr.prepEvent( privkey, msg, 4, [ [ "p", event.pubkey ] ] );
+                super_nostr.sendEvent( event, relays[ 0 ] );
+            }
         }
         var connection = super_nostr.newPermanentConnection( relays[ 0 ], listenFunction, handleFunction );
         console.log( `loading...` );
@@ -2783,7 +2795,7 @@ var hedgehog_factory = {
         console.log( 'your api key:' );
         console.log( apikey );
         console.log( `your nprofile is listening for commands on nostr. Include your apikey in your messages like this:` );
-        console.log( `node index.js get_balance --apikey=${apikey}` );
+        console.log( `node index.js get_balance --nprofile=${nprofile} --apikey=${apikey}` );
         return nprofile;
     },
     countPresent: async state_id => {
