@@ -1906,7 +1906,7 @@ var hedgehog_factory = {
         hedgehog_factory.init( state_id, privkey, pubkey );
         var state = hedgehog_factory.state[ state_id ];
         state.nwc_string = nwc_string;
-        var sharable_url = window.location.protocol + "//" + window.location.hostname + window.location.pathname + `#ceremony=${state_id}#routing_node=${pubkey}`;
+        // var sharable_url = window.location.protocol + "//" + window.location.hostname + window.location.pathname + `#ceremony=${state_id}#routing_node=${pubkey}`;
         // console.log( 'share this link with folks:' );
         // console.log( sharable_url );
         var loop = async future => {
@@ -2494,7 +2494,8 @@ var hedgehog_factory = {
         delete hedgehog_factory.state[ secret_for_responding_to_alice ];
         var state_id = json[ 0 ];
         var routing_node = json[ 1 ];
-        var sharable_url = window.location.protocol + "//" + window.location.hostname + window.location.pathname + `#ceremony=${state_id}#routing_node=${routing_node}`;
+        if ( window.hasOwnProperty( "location" ) ) var sharable_url = window.location.protocol + "//" + window.location.hostname + window.location.pathname + `#ceremony=${state_id}#routing_node=${routing_node}`;
+        else var sharable_url = JSON.stringify({ceremony: state_id, routing_node});
         console.log( 'share this with people to get them to join:' );
         console.log( sharable_url );
         var start_ceremony_when_ready = true;
