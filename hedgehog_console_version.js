@@ -3032,8 +3032,7 @@ var hedgehog = {
         }
         // console.log( 15.4 );
 
-        // console.log( 16, `amount Bob is trying to deposit into the htlc:`, new_amnt, 'amount I expect him to deposit:', amnt );
-        if ( new_amnt !== amnt ) return alert( `aborting because your counterparty tried to scam you on the amount. Specifically, he tried to send you ${new_amnt} when you are supposed to receive ${amnt}, per your request, keeping in mind the fact that if Bob was the last person to send money, the amount you receive should look like the previous amount he sent plus the new amount` );
+        if ( new_amnt !== amnt ) return console.log( `aborting because your counterparty tried to scam you on the amount. Specifically, he tried to send you ${new_amnt} when you are supposed to receive ${amnt}, per your request, keeping in mind the fact that if Bob was the last person to send money, the amount you receive should look like the previous amount he sent plus the new amount` );
 
         var sig_2s = [];
         var sig_4s = [];

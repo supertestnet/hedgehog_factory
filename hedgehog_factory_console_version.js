@@ -117,15 +117,17 @@ var hedgehog_factory = {
         var txid = await response.text();
         return txid;
     },
-    init: ( state_id, privkey = null, routing_node = null ) => {
+    init: ( state_id, privkey = null, routing_node = null, channel_size = 100_000 ) => {
         hedgehog_factory.state[ state_id ] = {
             i_am_admin: false,
             whos_here: {},
             who_should_pay: {},
             all_peers: [],
             ceremony_started: false,
-            channel_cost: 1000,
-            channel_size: 100_000,
+            //TODO: ensure channel cost is a variable percent set by admin
+            channel_cost: Math.ceil( channel_size / 100 ),
+            channel_size,
+            //TODO: ensure min and max are variables set per how much money admin has
             minimum: 3,
             maximum: 20,
             address_type: allover_address_type,
@@ -343,9 +345,13 @@ var hedgehog_factory = {
             Then wait while this app detects the transaction
         ` );
         if ( allover_address_type === "regtest" ) {
-            var txid = prompt( `send at least ${required_sum} sats to the address in your console and enter the txid` );
-            var vout = Number( prompt( `and the vout` ) );
-            var amnt = Number( prompt( `and the amount` ) );
+            //TODO: uncomment the three lines below and comment out the one after them
+            // var txid = prompt( `send at least ${required_sum} sats to the address in your console and enter the txid` );
+            // var vout = Number( prompt( `and the vout` ) );
+            // var amnt = Number( prompt( `and the amount` ) );
+            console.log( 'waiting 2 seconds to give time for explaining the invoices' );
+            await hedgehog_factory.waitSomeTime( 2_000 );
+            var [ txid, vout, amnt ] = [ "a".repeat( 64 ), 0, required_sum ];
         } else {
             await hedgehog_factory.loopTilAddressReceivesMoney( admin_addy, mempool_network );
             var [ txid, vout, amnt ] = await hedgehog_factory.addressReceivedMoneyInThisTx( admin_addy, mempool_network );
@@ -424,7 +430,7 @@ var hedgehog_factory = {
                 var users_in_group = Object.keys( state.who_should_pay );
                 if ( !users_in_group.includes( user ) ) return;
                 //get the current states
-                user_state = state.signing_progress[ user ];
+                var user_state = state.signing_progress[ user ];
                 //wait 10 seconds
                 await hedgehog_factory.waitSomeTime( 10_000 );
                 if ( state.validating ) return loop();
@@ -1322,6 +1328,8 @@ var hedgehog_factory = {
         var json = JSON.parse( msg.dat );
         //TODO: validate that the state_id exists
         var state_id = json.msg.state_id;
+        var secret2 = null;
+        if ( json.msg.hasOwnProperty( "secret2" ) ) secret2 = json.msg.secret2;
         var msg_id = state_id;
         var state = hedgehog_factory.state[ state_id ];
         var nwc_string = state.nwc_string;
@@ -1340,12 +1348,25 @@ var hedgehog_factory = {
         if ( "result_type" in invoice_info && invoice_info[ "result_type" ] !== "make_invoice" ) return alert( `your wallet encountered an undefined error while processing this deposit request, try again:\n\n${JSON.stringify( invoice_info )}` );
         if ( "error" in invoice_info && invoice_info[ "error" ] ) return alert( `error processing your deposit request: ${JSON.stringify( invoice_info[ "error" ] )} -- please try again` );
         var invoice = invoice_info.result.invoice || invoice_info.result.bolt11;
+        var alices_pubkey = msg.ctx.pubkey;
+        if ( secret2 ) {
+            var msg_about_invoice = JSON.stringify({
+                type: "secret_you_need",
+                msg: {
+                    secret: secret2,
+                    state_id,
+                    thing_needed: JSON.stringify({invoice}),
+                },
+            });
+            var node = state.node;
+            var recipient = alices_pubkey;
+            node.send( 'secret_you_need', msg_about_invoice, recipient, msg_id );
+        }
         var htlc_hash = hedgehog.getInvoicePmthash( invoice );
         // console.log( 3, msg_id, amnt, htlc_hash, invoice, msg.ctx.pubkey );
-        var htlc_ready = await hedgehog.bobSendsHtlc( msg_id, amnt, htlc_hash, invoice, msg.ctx.pubkey );
+        var htlc_ready = await hedgehog.bobSendsHtlc( msg_id, amnt, htlc_hash, invoice, alices_pubkey );
         if ( !htlc_ready ) return;
         //start listening for the invoice to be paid
-        var alices_pubkey = msg.ctx.pubkey;
         var chan_ids = [];
         state.opening_info_for_hedgehog_channels[ alices_pubkey ].forEach( opener => chan_ids.push( opener.chan_id ) );
         var loop = async () => {
@@ -1692,10 +1713,10 @@ var hedgehog_factory = {
             hedgehog.state[ chan_id ].pending_htlc = {}
         }
     },
-    sendViaHedgehog: async state_id => {
+    sendViaHedgehog: async ( state_id, amnt ) => {
         if ( !state_id ) return alert( `you forgot the state_id` );
         var state = hedgehog_factory.state[ state_id ];
-        var amnt = Number( prompt( `enter how many sats you want to send` ) );
+        if ( !amnt ) amnt = Number( prompt( `enter how many sats you want to send` ) );
         if ( !amnt || amnt < 1 ) return alert( `error` );
         //TODO: ensure the amount is less than what you have
         var preimage = nobleSecp256k1.utils.randomPrivateKey();
@@ -1705,23 +1726,25 @@ var hedgehog_factory = {
         var encryption_key = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() );
         var decryption_key = nobleSecp256k1.getPublicKey( encryption_key, true ).substring( 2 );
         var forwarding_info = await super_nostr.alt_encrypt( encryption_key, state.all_peers[ 0 ], JSON.stringify({pubkey: state.pubkey, state_id}) );
-        console.log( `
-            Send this to your recipient:
-            ${JSON.stringify({
-                preimage,
-                admin: state.all_peers[ 0 ],
-                relays: [ "wss://nostrue.com" ],
-                amnt,
-                decryption_key,
-                forwarding_info,
-            })}
-        ` );
-        await hedgehog_factory.waitSomeTime( 1000 );
-        var chan_id = state.opening_info_for_hedgehog_channels[ state.pubkey ][ 0 ].chan_id;
-        var pending_htlc = hedgehog.state[ chan_id ].pending_htlc;
-        var pmthash_for_hedgehog = pending_htlc.htlc_hash;
-        var desc_for_hedgehog = "hedgehog payment";
-        var amt_for_hedgehog = amnt;
+        return {
+            preimage,
+            admin: state.all_peers[ 0 ],
+            relays: [ "wss://nostrue.com" ],
+            amnt,
+            decryption_key,
+            forwarding_info,
+        }
+        // console.log( `
+        //     Send this to your recipient:
+        //     ${JSON.stringify({
+        //         preimage,
+        //         admin: state.all_peers[ 0 ],
+        //         relays: [ "wss://nostrue.com" ],
+        //         amnt,
+        //         decryption_key,
+        //         forwarding_info,
+        //     })}
+        // ` );
     },
     checkIfPaymentReallySucceeded: async ( msg, state_id ) => {
         var msg_id = state_id;
@@ -1759,9 +1782,11 @@ var hedgehog_factory = {
             time: Math.floor( Date.now() / 1000 ),
         });
     },
-    receiveViaHedgehog: async state_id => {
-        var info_from_sender = prompt( `enter the info from the sender` );
-        info_from_sender = JSON.parse( info_from_sender );
+    receiveViaHedgehog: async ( state_id, info_from_sender ) => {
+        if ( !info_from_sender ) {
+            info_from_sender = prompt( `enter the info from the sender` );
+            info_from_sender = JSON.parse( info_from_sender );
+        }
         if ( !info_from_sender ) return;
         var amnt = info_from_sender.amnt;
         //TODO: ensure the amount is less than your receiving capacity
@@ -1811,7 +1836,8 @@ var hedgehog_factory = {
             await hedgehog_factory.waitSomeTime( 1000 );
             loop();
         }
-        loop();
+        await loop();
+        return true;
     },
     liquidateFactory: async state_id => {
         var state = hedgehog_factory.state[ state_id ];
@@ -1890,7 +1916,9 @@ var hedgehog_factory = {
         var node = state.node;
         node.send( 'cancel_htlc', '', state.all_peers[ 0 ], msg_id );
     },
-    beginAsAdmin: async ( nwc_string, minutes_to_wait ) => {
+    beginAsAdmin: async ( nwc_string, minutes_to_wait, channel_size = 100_000 ) => {
+        //TODO: ensure channel_size is a number
+        if ( channel_size < 100_000 ) return console.log( 'channel size is below minimum of 100_000' );
         var privkey = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() );
         var pubkey = nobleSecp256k1.getPublicKey( privkey, true ).substring( 2 );
         var relays = [ "wss://nostrue.com" ];
@@ -1903,7 +1931,7 @@ var hedgehog_factory = {
         var timestamp = Math.floor( Date.now() / 1000 ) + ( minutes_to_wait * 60 );
         var timestamp_as_hex = timestamp.toString( 16 ).padStart( 8, "0" );
         var state_id = timestamp_as_hex + hedgehog_factory.bytesToHex( window.crypto.getRandomValues( new Uint8Array( 16 - 4 ) ) );
-        hedgehog_factory.init( state_id, privkey, pubkey );
+        hedgehog_factory.init( state_id, privkey, pubkey, channel_size );
         var state = hedgehog_factory.state[ state_id ];
         state.nwc_string = nwc_string;
         // var sharable_url = window.location.protocol + "//" + window.location.hostname + window.location.pathname + `#ceremony=${state_id}#routing_node=${pubkey}`;
@@ -1947,11 +1975,11 @@ var hedgehog_factory = {
         hedgehog_factory.prepNode( state_id );
         return [ state_id, pubkey ];
     },
-    beginAsUser: async ( state_id, routing_node, show_num_of_users ) => {
+    beginAsUser: async ( state_id, routing_node, show_num_of_users, channel_size, return_when_waiting ) => {
         var privkey = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() );
         var pubkey = nobleSecp256k1.getPublicKey( privkey, true ).substring( 2 );
         var relays = [ "wss://nostrue.com" ];
-        hedgehog_factory.init( state_id, privkey, routing_node );
+        hedgehog_factory.init( state_id, privkey, routing_node, channel_size );
         var state = hedgehog_factory.state[ state_id ];
         var loop = async future => {
             if ( state.ceremony_started ) return console.log( 'ceremony started, countdown stopped' );
@@ -1991,6 +2019,7 @@ var hedgehog_factory = {
         }
         registerLoop();
         hedgehog_factory.prepNode( state_id );
+        if ( return_when_waiting ) return state_id;
         if ( !show_num_of_users ) return;
         var startLoop = async () => {
             await hedgehog_factory.waitSomeTime( 3_000 );
@@ -2067,41 +2096,55 @@ var hedgehog_factory = {
                 state.sorted_round_sigs = JSON.parse( msg.dat )[ "sorted_round_sigs" ];
                 state.sorted_user_ejection_sigs = JSON.parse( msg.dat )[ "ejection_sigs_for_this_user" ];
                 state.sorted_connector_sigs = JSON.parse( msg.dat )[ "connector_sigs_for_this_user" ];
-                hedgehog_factory.send = async state_id => {
-                    var do_lightning = confirm( 'click ok to send via LN or cancel to send via hedgehog' );
+                hedgehog_factory.send = async ( state_id, do_lightning, invoice, amount ) => {
                     if ( !do_lightning ) {
-                        hedgehog_factory.sendViaHedgehog( state_id );
-                        return;
+                        var data_for_recipient = await hedgehog_factory.sendViaHedgehog( state_id, amount );
+                        return data_for_recipient;
                     }
-                    var invoice = prompt( `enter an ln invoice` );
+                    if ( !invoice ) invoice = prompt( `enter an ln invoice` );
                     var htlc_hash = hedgehog.getInvoicePmthash( invoice );
                     var amnt = hedgehog.getInvoiceAmount( invoice );
                     if ( !amnt || !htlc_hash || amnt < 1 ) return alert( `error` );
                     console.log( 'paying...' );
                     await hedgehog.aliceSendsHtlc( state_id, amnt, htlc_hash, invoice );
                 }
-                hedgehog_factory.receive = async state_id => {
-                    var do_lightning = confirm( 'click ok to receive via LN or cancel to receive via hedgehog' );
+                hedgehog_factory.receive = async ( state_id, do_lightning, amnt, secret, alices_pubkey, info_from_sender ) => {
+                    var msg_id = state_id;
                     if ( !do_lightning ) {
-                        hedgehog_factory.receiveViaHedgehog( state_id );
-                        return;
+                        var it_worked = await hedgehog_factory.receiveViaHedgehog( state_id, info_from_sender );
+                        return it_worked;
                     }
-                    var amnt = Number( prompt( `enter an amount you want to receive` ) );
+                    if ( !amnt ) amnt = Number( prompt( `enter an amount you want to receive` ) );
                     if ( !amnt ) return;
                     console.log( `loading...` );
                     var state = hedgehog_factory.state[ state_id ];
                     var all_peers = state.all_peers;
                     var recipient = all_peers[ 0 ];
+                    var secret2 = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomBytes( 16 ) );
                     var msg = JSON.stringify({
                         type: "initiate_ln_receive",
                         msg: {
                             amnt,
                             state_id,
+                            secret2,
                         }
                     });
                     state.amount_alice_expects_in_next_htlc = amnt;
                     var node = state.node;
                     node.send( 'initiate_ln_receive', msg, recipient, msg_id );
+                    if ( !secret ) return;
+                    var invoice = await hedgehog_factory.getNote( secret2, state_id );
+                    if ( !invoice ) invoice = "no invoice received";
+                    var plaintext = {
+                        type: "secret_you_need",
+                        secret,
+                        value: {
+                            thing_needed: JSON.stringify( invoice ),
+                        },
+                    }
+                    var msg = await super_nostr.alt_encrypt( privkey, alices_pubkey, JSON.stringify( plaintext ) );
+                    var event = await super_nostr.prepEvent( privkey, msg, 4, [ [ "p", alices_pubkey ] ] );
+                    super_nostr.sendEvent( event, state.relays[ 0 ] );
                 }
                 hedgehog_factory.eject = state_id => {
                     var conf = confirm( `Click ok if you sure you want to eject yourself from this channel factory` );
@@ -2438,7 +2481,7 @@ var hedgehog_factory = {
         }
         loop();
     },
-    aliceRequestsCeremony: async routing_nodes_nprofile => {
+    aliceRequestsCeremony: async ( routing_nodes_nprofile, amount = 100_000 ) => {
         var privkey = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() );
         var pubkey = nobleSecp256k1.getPublicKey( privkey, true ).substring( 2 );
         var [ routing_node, relays ] = hedgehog_factory.convertNEvent( routing_nodes_nprofile );
@@ -2463,7 +2506,9 @@ var hedgehog_factory = {
                 state_id = state_id.substring( state_id.length - 32 );
                 privkey_for_decryption = hedgehog.bytesToHex( hedgehog_factory.state[ state_id ].node._seckey );
             }
-            event.content = await super_nostr.alt_decrypt( privkey_for_decryption, event.pubkey, event.content );
+            try {
+                event.content = await super_nostr.alt_decrypt( privkey_for_decryption, event.pubkey, event.content );
+            } catch ( e ) {return;}
             var json = JSON.parse( event.content );
             if ( json.type === "secret_you_need" ) {
                 var secret = json.secret;
@@ -2482,9 +2527,12 @@ var hedgehog_factory = {
         var secret_for_responding_to_alice = hedgehog.bytesToHex( nobleSecp256k1.utils.randomBytes( 16 ) );
         var msg = await super_nostr.alt_encrypt( privkey, routing_node, JSON.stringify({
             type: "begin_as_admin",
-            value: secret_for_responding_to_alice,
+            value: {
+                secret_for_responding_to_alice,
+                amount,
+            },
         }) );
-        var event = await super_nostr.prepEvent( privkey, msg, 52176, [ [ "p", routing_node ] ] );
+        var event = await super_nostr.prepEvent( privkey, msg, 4, [ [ "p", routing_node ] ] );
         super_nostr.sendEvent( event, relays[ 0 ] );
         hedgehog_factory.state[ secret_for_responding_to_alice ] = {
             retrievables: {},
@@ -2496,35 +2544,104 @@ var hedgehog_factory = {
         var routing_node = json[ 1 ];
         if ( window.hasOwnProperty( "location" ) ) var sharable_url = window.location.protocol + "//" + window.location.hostname + window.location.pathname + `#ceremony=${state_id}#routing_node=${routing_node}`;
         else var sharable_url = JSON.stringify({ceremony: state_id, routing_node});
-        console.log( 'share this with people to get them to join:' );
-        console.log( sharable_url );
-        var start_ceremony_when_ready = true;
-        hedgehog_factory.beginAsUser( state_id, routing_node, start_ceremony_when_ready );
+        // console.log( 'share this with people to get them to join:' );
+        // console.log( sharable_url );
+        var show_num_of_users = false;
+        var return_when_waiting = true;
+        await hedgehog_factory.beginAsUser( state_id, routing_node, show_num_of_users, amount, return_when_waiting );
+        return sharable_url;
     },
-    aliceOpenChannelSansPool: async routing_nodes_nprofile => {
+    aliceRequestsCeremonyData: async ( routing_nodes_nprofile, state_id ) => {
+        var privkey = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() );
+        var pubkey = nobleSecp256k1.getPublicKey( privkey, true ).substring( 2 );
+        var [ routing_node, relays ] = hedgehog_factory.convertNEvent( routing_nodes_nprofile );
+        var listenFunction = async socket => {
+            var subId = super_nostr.bytesToHex( window.crypto.getRandomValues( new Uint8Array( 8 ) ) );
+            var filter  = {}
+            filter.kinds = [ 4 ];
+            filter.since = Math.floor( Date.now() / 1000 );
+            var subscription = [ "REQ", subId, filter ];
+            socket.send( JSON.stringify( subscription ) );
+        }
+        var handleFunction = async message => {
+            // console.log( 'got message!' );
+            // console.log( message );
+            var [ type, subId, event ] = JSON.parse( message.data );
+            if ( !event || event === true ) return;
+            if ( event.kind !== 4 ) return;
+            if ( event.pubkey !== routing_node ) return;
+            var state_id = hedgehog_factory.extractEventTagFromNostrEvent( event );
+            var privkey_for_decryption = privkey;
+            if ( state_id !== "no recipient" ) {
+                state_id = state_id.substring( state_id.length - 32 );
+                privkey_for_decryption = hedgehog.bytesToHex( hedgehog_factory.state[ state_id ].node._seckey );
+            }
+            try {
+                event.content = await super_nostr.alt_decrypt( privkey_for_decryption, event.pubkey, event.content );
+            } catch ( e ) {return console.log( 'someone sent you a message that could not be decrypted' );}
+            var json = JSON.parse( event.content );
+            if ( json.type === "secret_you_need" ) {
+                var secret = json.secret;
+                if ( state_id === "no recipient" ) {
+                    hedgehog_factory.state[ secret ].retrievables[ secret ] = json.value.thing_needed;
+                } else {
+                    hedgehog_factory.state[ state_id ].retrievables[ secret ] = json.value.thing_needed;
+                    setTimeout( () => {delete hedgehog_factory.state[ state_id ].retrievables[ secret ];}, 5000 );
+                }
+            }
+        }
+        var connection = super_nostr.newPermanentConnection( relays[ 0 ], listenFunction, handleFunction );
+        console.log( `loading...` );
+        await hedgehog_factory.waitSomeTime( 2000 );
+        console.log( `ready!` );
+        var secret_for_responding_to_alice = hedgehog.bytesToHex( nobleSecp256k1.utils.randomBytes( 16 ) );
+        var msg = await super_nostr.alt_encrypt( privkey, routing_node, JSON.stringify({
+            type: "get_ceremony_data_from_admin",
+            value: {
+                secret_for_responding_to_alice,
+                state_id,
+            },
+        }) );
+        var event = await super_nostr.prepEvent( privkey, msg, 4, [ [ "p", routing_node ] ] );
+        super_nostr.sendEvent( event, relays[ 0 ] );
+        hedgehog_factory.state[ secret_for_responding_to_alice ] = {
+            retrievables: {},
+        }
+        var data_from_bob = await hedgehog_factory.getNote( secret_for_responding_to_alice, secret_for_responding_to_alice );
+        var json = JSON.parse( data_from_bob );
+        delete hedgehog_factory.state[ secret_for_responding_to_alice ];
+        return json;
+    },
+    aliceOpensChannelSansPool: async ( routing_nodes_nprofile, utxo_info, amount, change_address, console_only_mode ) => {
         //TODO: get a txfee estimate from the mempool
         var txfee = 500;
         var channel_minimum = 10_000 + txfee;
         var privkey = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() );
         var pubkey = nobleSecp256k1.getPublicKey( privkey, true ).substring( 2 );
-        var addy = tapscript.Address.fromScriptPubKey( [ 1, pubkey ], allover_address_type );
         var timestamp = Math.floor( Date.now() / 1000 );
         var timestamp_as_hex = timestamp.toString( 16 ).padStart( 8, "0" );
         var msg_id = timestamp_as_hex + hedgehog_factory.bytesToHex( window.crypto.getRandomValues( new Uint8Array( 16 - 4 ) ) );
-        // console.log( `send at least ${required_sum} to this address:` );
-        // console.log( admin_addy );
-        console.log( `
-            Send at least ${channel_minimum} sats to this address
-            ${addy}
-            Then wait while this app detects the transaction
-        ` );
-        if ( allover_address_type === "regtest" ) {
-            var txid = prompt( `send at least ${channel_minimum} sats to the address in your console and enter the txid` );
-            var vout = Number( prompt( `and the vout` ) );
-            var amnt = Number( prompt( `and the amount` ) );
+        if ( !utxo_info ) {
+            var addy = tapscript.Address.fromScriptPubKey( [ 1, pubkey ], allover_address_type );
+            // console.log( `send at least ${required_sum} to this address:` );
+            // console.log( admin_addy );
+            console.log( `
+                Send at least ${channel_minimum} sats to this address
+                ${addy}
+                Then wait while this app detects the transaction
+            ` );
+            if ( allover_address_type === "regtest" ) {
+                //TODO: uncomment the three lines below and comment out the one after them
+                // var txid = prompt( `send at least ${channel_minimum} sats to the address in your console and enter the txid` );
+                // var vout = Number( prompt( `and the vout` ) );
+                // var amnt = Number( prompt( `and the amount` ) );
+                var [ txid, vout, amnt ] = [ "a".repeat( 64 ), 0, channel_minimum ];
+            } else {
+                await hedgehog_factory.loopTilAddressReceivesMoney( addy, mempool_network );
+                var [ txid, vout, amnt ] = await hedgehog_factory.addressReceivedMoneyInThisTx( addy, mempool_network );
+            }
         } else {
-            await hedgehog_factory.loopTilAddressReceivesMoney( addy, mempool_network );
-            var [ txid, vout, amnt ] = await hedgehog_factory.addressReceivedMoneyInThisTx( addy, mempool_network );
+            var [ txid, vout, amnt, addy ] = utxo_info;
         }
         var [ routing_node, relays ] = hedgehog_factory.convertNEvent( routing_nodes_nprofile );
         var listenFunction = async socket => {
@@ -2567,18 +2684,22 @@ var hedgehog_factory = {
                 state_id,
             },
         }) );
-        var event = await super_nostr.prepEvent( privkey, msg, 52176, [ [ "p", routing_node ] ] );
+        var event = await super_nostr.prepEvent( privkey, msg, 4, [ [ "p", routing_node ] ] );
         super_nostr.sendEvent( event, relays[ 0 ] );
         var data_from_bob = await hedgehog_factory.getNote( secret_for_responding_to_alice, state_id );
-        json = JSON.parse( data_from_bob );
+        var json = JSON.parse( data_from_bob );
         var bobs_pubkey_and_hash = json.bobs_pubkey_and_hash;
         var secret_for_responding_to_bob = json.secret_for_responding_to_bob;
         var multisig_script = [ pubkey, "OP_CHECKSIGVERIFY", bobs_pubkey_and_hash[ 0 ], "OP_CHECKSIG" ];
         var multisig = hedgehog.makeAddress( [ multisig_script ] );
         var funding_tx = tapscript.Tx.create({
             vin: [hedgehog.getVin( txid, vout, amnt, addy )],
-            vout: [hedgehog.getVout( amnt - txfee, multisig )],
+            vout: [hedgehog.getVout( amount, multisig )],
         });
+        if ( amnt - amount > 330 ) {
+            var change_amount = amnt - amount - txfee;
+            funding_tx.vout.push( hedgehog.getVout( change_amount, change_address ) );
+        }
         var sig = tapscript.Signer.taproot.sign( privkey, funding_tx, 0 ).hex;
         funding_tx.vin[ 0 ].witness = [ sig ];
         var funding_txid = tapscript.Tx.util.getTxid( funding_tx );
@@ -2590,7 +2711,7 @@ var hedgehog_factory = {
         var change_address = null;
         var data = null;
         var alices_privkey = privkey;
-        var txinfo = [ funding_txid, 0, amnt - txfee ];
+        var txinfo = [ funding_txid, 0, amount ];
         var skip_alert = false;
         var skip_conf = true;
         var sigs_and_stuff = await hedgehog.openChannel( push_all_funds_to_counterparty, bobs_pubkey_and_hash, papa_swap_hash, utxos_for_papa_swap, deposit_amount, change_address, data, alices_privkey, txinfo, skip_alert, skip_conf );
@@ -2612,17 +2733,28 @@ var hedgehog_factory = {
         var state = hedgehog_factory.state[ state_id ];
         state.opening_info_for_hedgehog_channels = {}
         state.opening_info_for_hedgehog_channels[ pubkey ] = [{chan_id: sigs_and_stuff.chan_id}];
-        var event = await super_nostr.prepEvent( privkey, msg, 52176, [ [ "p", routing_node ] ] );
+        //add all things necessary to use a node, then add a node
+        state.all_peers = [ routing_node, pubkey ];
+        state.i_am_admin = false;
+        state.routing_node = routing_node;
+        state.privkey = privkey;
+        state.pubkey = pubkey;
+        state.relays = relays;
+        if ( console_only_mode ) state.node = new nostr_p2p( relays, privkey );
+        else state.node = nostr_p2p( relays, privkey );
+        hedgehog_factory.prepNode( state_id );
+        var event = await super_nostr.prepEvent( privkey, msg, 4, [ [ "p", routing_node ] ] );
         super_nostr.sendEvent( event, relays[ 0 ] );
         var data_from_bob = await hedgehog_factory.getNote( secret_for_responding_to_alice, state_id );
         json = JSON.parse( data_from_bob );
-        console.log( json );
         var sigs_and_stuff = json[ "sigs_and_stuff" ];
         var got_coins = await hedgehog.receive( sigs_and_stuff );
         if ( !got_coins ) return;
         if ( hedgehog.state[ chan_id ].balances[ 1 ] !== 480 ) return console.log( 'aborting because your counterparty tried to scam you by not letting you keep the full amount on your side of the channel' );
-        console.log( 'all is well -- broadcast this:' );
-        console.log( funding_txhex );
+        // console.log( 'all is well -- broadcast this:' );
+        // console.log( funding_txhex );
+        console.log( 'all is well' );
+        return funding_txhex;
     },
     extractEventTagFromNostrEvent: event => {
         var event_tag = null;
@@ -2668,14 +2800,14 @@ var hedgehog_factory = {
         var nevent = bech32.bech32.encode( prefix, bech32.bech32.toWords( bytes ), 100_000 );
         return nevent;
     },
-    runServer: async ( apikey, privkey ) => {
+    runServer: async ( apikey, privkey, i_am_admin, console_only_mode ) => {
         if ( !privkey ) privkey = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomPrivateKey() );
         var pubkey = nobleSecp256k1.getPublicKey( privkey, true ).substring( 2 );
         var relays = [ "wss://nostrue.com" ];
         var listenFunction = async socket => {
             var subId = super_nostr.bytesToHex( window.crypto.getRandomValues( new Uint8Array( 8 ) ) );
             var filter = {}
-            filter.kinds = [ 52176 ];
+            filter.kinds = [ 4 ];
             filter[ "#p" ] = [ pubkey ];
             filter.since = Math.floor( Date.now() / 1000 );
             var subscription = [ "REQ", subId, filter ];
@@ -2684,16 +2816,57 @@ var hedgehog_factory = {
         var handleFunction = async message => {
             var [ type, subId, event ] = JSON.parse( message.data );
             if ( !event || event === true ) return;
-            if ( event.kind !== 52176 ) return;
-            //TODO: ensure decrypting this doesn't break my app
-            event.content = await super_nostr.alt_decrypt( privkey, event.pubkey, event.content );
+            if ( event.kind !== 4 ) return;
+            try {
+                event.content = await super_nostr.alt_decrypt( privkey, event.pubkey, event.content );
+            } catch ( e ) {return;}
+            // console.log( 'got event:' );
+            // console.log( event.content );
             var alices_pubkey = event.pubkey;
             var json = JSON.parse( event.content );
+            if ( json.type === "secret_you_need" ) {
+                var secret = json.value.secret;
+                var state_id = json.value.state_id;
+                hedgehog_factory.state[ state_id ].retrievables[ secret ] = json.value.thing_needed;
+                setTimeout( () => {delete hedgehog_factory.state[ state_id ].retrievables[ secret ];}, 5000 );
+            }
+            if ( json.type === "get_balance" ) {
+                hedgehog_factory.runGetBalance( json, event, apikey, privkey, alices_pubkey, relays );
+            }
+            if ( json.type === "open_channel" ) {
+                hedgehog_factory.runOpenChannel( json, event, apikey, privkey, alices_pubkey, relays, console_only_mode );
+            }
+            if ( json.type === "receive_ln" ) {
+                hedgehog_factory.runReceiveLN( json, event, apikey, privkey, alices_pubkey, relays );
+            }
+            if ( json.type === "prep_ceremony" ) {
+                hedgehog_factory.runPrepCeremony( json, event, apikey, privkey, alices_pubkey, relays );
+            }
+            if ( json.type === "get_ceremony_data" ) {
+                hedgehog_factory.runGetCeremonyData( json, event, apikey, privkey, alices_pubkey, relays );
+            }
+            if ( json.type === "start_ceremony" ) {
+                hedgehog_factory.runStartCeremony( json, event, apikey, privkey, alices_pubkey, relays );
+            }
+            if ( json.type === "send_via_hedgehog" ) {
+                hedgehog_factory.runSendViaHedgehog( json, event, apikey, privkey, alices_pubkey, relays );
+            }
+            if ( json.type === "receive_via_hedgehog" ) {
+                hedgehog_factory.runReceiveViaHedgehog( json, event, apikey, privkey, alices_pubkey, relays );
+            }
             if ( json.type === "alice_opens_channel" ) {
+                if ( !i_am_admin ) return console.log( 'only the admin can run this command' );
                 //TODO: ensure the state_id given by Alice is not too large and is a string
                 var state_id = json.value.state_id;
                 if ( !hedgehog_factory.state.hasOwnProperty( state_id ) ) hedgehog_factory.state[ state_id ] = {
                     retrievables: {},
+                    i_am_admin: true,
+                    all_peers: [ pubkey, event.pubkey ],
+                    routing_node: pubkey,
+                    privkey,
+                    pubkey,
+                    relays,
+                    nwc_string: nwc_backend,
                 }
                 var preimage = hedgehog_factory.bytesToHex( window.crypto.getRandomValues( new Uint8Array( 16 ) ) );
                 var hash = hedgehog.rmd160( hedgehog.hexToBytes( preimage ) );
@@ -2726,7 +2899,6 @@ var hedgehog_factory = {
                 if ( !sigs_and_stuff.hasOwnProperty( "chan_id" ) ) return;
                 if ( hedgehog.state.hasOwnProperty( sigs_and_stuff.chan_id ) ) return;
                 var channel_is_valid = await hedgehog.openChannel( false, null, null, null, null, null, sigs_and_stuff, null, null, null, false );
-                console.log( "channel_is_valid, right?", channel_is_valid );
                 if ( !channel_is_valid ) {
                     delete hedgehog_factory.state[ state_id ];
                     return;
@@ -2734,6 +2906,9 @@ var hedgehog_factory = {
                 var state = hedgehog_factory.state[ state_id ];
                 state.opening_info_for_hedgehog_channels = {}
                 state.opening_info_for_hedgehog_channels[ alices_pubkey ] = [{chan_id: sigs_and_stuff.chan_id}];
+                if ( console_only_mode ) state.node = new nostr_p2p( relays, privkey );
+                else state.node = nostr_p2p( relays, privkey );
+                hedgehog_factory.prepNode( state_id );
                 var sigs_and_stuff_for_alice = hedgehog.send( sigs_and_stuff.chan_id, sigs_and_stuff[ "utxo_info" ][ "amnt" ] - ( 240 * 2 ) );
                 var msg = await super_nostr.alt_encrypt( privkey, alices_pubkey, JSON.stringify({
                     type: "secret_you_need",
@@ -2752,16 +2927,12 @@ var hedgehog_factory = {
                 console.log( "watch for this tx to confirm and don't let her spend anything before then:" );
                 console.log( sigs_and_stuff[ "utxo_info" ][ "txid" ] );
             }
-            if ( json.type === "secret_you_need" ) {
-                var secret = json.value.secret;
-                var state_id = json.value.state_id;
-                hedgehog_factory.state[ state_id ].retrievables[ secret ] = json.value.thing_needed;
-                setTimeout( () => {delete hedgehog_factory.state[ state_id ].retrievables[ secret ];}, 5000 );
-            }
             if ( json.type === "begin_as_admin" ) {
-                var sharable_data = await hedgehog_factory.beginAsAdmin( nwc_backend, minutes_to_wait_for_ceremonies );
+                if ( !i_am_admin ) return console.log( 'only the admin can run this command' );
+                var amount = json.value.amount;
+                var sharable_data = await hedgehog_factory.beginAsAdmin( nwc_backend, minutes_to_wait_for_ceremonies, amount );
                 var state_id = sharable_data[ 0 ];
-                var secret_for_responding_to_alice = json.value;
+                var secret_for_responding_to_alice = json.value.secret_for_responding_to_alice;
                 var msg = await super_nostr.alt_encrypt( privkey, alices_pubkey, JSON.stringify({
                     type: "secret_you_need",
                     secret: secret_for_responding_to_alice,
@@ -2772,19 +2943,25 @@ var hedgehog_factory = {
                 var event = await super_nostr.prepEvent( privkey, msg, 4, [ [ "p", event.pubkey ] ] );
                 super_nostr.sendEvent( event, relays[ 0 ] );
             }
-            if ( json.type === "get_balance" ) {
-                var claimed_apikey = json.value.apikey;
-                var real_apikey = apikey;
-                if ( claimed_apikey !== real_apikey ) return console.log( 'someone passed an api key that did not match what was expected' );
-                var secret = json.value.secret;
-                var plaintext = {
+            if ( json.type === "get_ceremony_data_from_admin" ) {
+                if ( !i_am_admin ) return console.log( 'only the admin can run this command' );
+                var state_id = json.value.state_id;
+                var secret_for_responding_to_alice = json.value.secret_for_responding_to_alice;
+                //TODO: ensure the state_id is valid
+                var state = hedgehog_factory.state[ state_id ];
+                var when_ceremony_begins = parseInt( state_id.substring( 0, 8 ), 16 );
+                var msg = await super_nostr.alt_encrypt( privkey, alices_pubkey, JSON.stringify({
                     type: "secret_you_need",
-                    secret,
+                    secret: secret_for_responding_to_alice,
                     value: {
-                        thing_needed: balance.bal,
+                        thing_needed: JSON.stringify({
+                            time_remaining: when_ceremony_begins - Math.floor( Date.now() / 1000 ),
+                            people_waiting: Object.keys( state.whos_here ).length,
+                            minimum: state.minimum,
+                            maximum: state.maximum,
+                        }),
                     },
-                }
-                var msg = await super_nostr.alt_encrypt( privkey, alices_pubkey, JSON.stringify( plaintext ) );
+                }) );
                 var event = await super_nostr.prepEvent( privkey, msg, 4, [ [ "p", event.pubkey ] ] );
                 super_nostr.sendEvent( event, relays[ 0 ] );
             }
@@ -2810,5 +2987,259 @@ var hedgehog_factory = {
         var node = state.node;
         var msg_id = state_id;
         node.send( 'start_ceremony', '', state.routing_node, msg_id );
+    },
+    runGetBalance: async ( json, event, apikey, privkey, alices_pubkey, relays ) => {
+        var claimed_apikey = json.value.apikey;
+        var real_apikey = apikey;
+        if ( claimed_apikey !== real_apikey ) return console.log( 'someone passed an api key that did not match what was expected' );
+        var secret = json.value.secret;
+        var state_ids = Object.keys( hedgehog_factory.state );
+        var user_chan_ids = {}
+        var admin_chan_ids = {}
+        var user_balances = {}
+        var admin_balances = {}
+        state_ids.forEach( state_id => {
+            var state = hedgehog_factory.state[ state_id ];
+            if ( state.i_am_admin ) {
+                var users = Object.keys( state.opening_info_for_hedgehog_channels );
+                users.splice( 0, 1 );
+                var chan_ids = [];
+                users.forEach( user => state.opening_info_for_hedgehog_channels[ user ].forEach( opener => chan_ids.push( opener.chan_id ) ) );
+                admin_chan_ids[ state_id ] = chan_ids;
+            } else {
+                var chan_ids = [];
+                state.opening_info_for_hedgehog_channels[ state.pubkey ].forEach( opener => chan_ids.push( opener.chan_id ) );
+                user_chan_ids[ state_id ] = chan_ids;
+            }
+        });
+        Object.keys( user_chan_ids ).forEach( state_id => {
+            var chan_ids = user_chan_ids[ state_id ];
+            chan_ids.forEach( chan_id => {
+                user_balances[ chan_id ] = {
+                    balance: hedgehog.state[ chan_id ].balances[ 0 ],
+                    pending: hedgehog.state[ chan_id ].balances.pending_htlc,
+                }
+            });
+        });
+        Object.keys( admin_chan_ids ).forEach( state_id => {
+            var chan_ids = admin_chan_ids[ state_id ];
+            chan_ids.forEach( chan_id => {
+                admin_balances[ chan_id ] = {
+                    balance: hedgehog.state[ chan_id ].balances[ 1 ],
+                    pending: hedgehog.state[ chan_id ].balances.pending_htlc,
+                }
+            });
+        });
+        var plaintext = {
+            type: "secret_you_need",
+            secret,
+            value: {
+                thing_needed: JSON.stringify({
+                    state_ids,
+                    user_chan_ids,
+                    admin_chan_ids,
+                    user_balances,
+                    admin_balances,
+                }),
+            },
+        }
+        var msg = await super_nostr.alt_encrypt( privkey, alices_pubkey, JSON.stringify( plaintext ) );
+        var event = await super_nostr.prepEvent( privkey, msg, 4, [ [ "p", event.pubkey ] ] );
+        super_nostr.sendEvent( event, relays[ 0 ] );
+    },
+    runOpenChannel: async ( json, event, apikey, privkey, alices_pubkey, relays, console_only_mode ) => {
+        var claimed_apikey = json.value.apikey;
+        var real_apikey = apikey;
+        if ( claimed_apikey !== real_apikey ) return console.log( 'someone passed an api key that did not match what was expected' );
+        var secret = json.value.secret;
+        var admin_nprofile = json.value.admin_nprofile;
+        var utxo_info = json.value.utxo_info;
+        var amount = json.value.amount;
+        var change_address = json.value.change_address;
+        var txhex = await hedgehog_factory.aliceOpensChannelSansPool( admin_nprofile, utxo_info, amount, change_address, console_only_mode );
+        var plaintext = {
+            type: "secret_you_need",
+            secret,
+            value: {
+                thing_needed: JSON.stringify( txhex ),
+            },
+        }
+        var msg = await super_nostr.alt_encrypt( privkey, alices_pubkey, JSON.stringify( plaintext ) );
+        var event = await super_nostr.prepEvent( privkey, msg, 4, [ [ "p", event.pubkey ] ] );
+        super_nostr.sendEvent( event, relays[ 0 ] );
+        hedgehog_factory.send = async ( state_id, do_lightning, invoice, amount ) => {
+            if ( !do_lightning ) {
+                var data_for_recipient = await hedgehog_factory.sendViaHedgehog( state_id, amount );
+                return data_for_recipient;
+            }
+            if ( !invoice ) invoice = prompt( `enter an ln invoice` );
+            var htlc_hash = hedgehog.getInvoicePmthash( invoice );
+            var amnt = hedgehog.getInvoiceAmount( invoice );
+            if ( !amnt || !htlc_hash || amnt < 1 ) return alert( `error` );
+            console.log( 'paying...' );
+            await hedgehog.aliceSendsHtlc( state_id, amnt, htlc_hash, invoice );
+        }
+        hedgehog_factory.receive = async ( state_id, do_lightning, amnt, secret, alices_pubkey, info_from_sender ) => {
+            var msg_id = state_id;
+            if ( !do_lightning ) {
+                var it_worked = await hedgehog_factory.receiveViaHedgehog( state_id, info_from_sender );
+                return it_worked;
+            }
+            if ( !amnt ) amnt = Number( prompt( `enter an amount you want to receive` ) );
+            if ( !amnt ) return;
+            console.log( `loading...` );
+            var state = hedgehog_factory.state[ state_id ];
+            var all_peers = state.all_peers;
+            var recipient = all_peers[ 0 ];
+            var secret2 = hedgehog_factory.bytesToHex( nobleSecp256k1.utils.randomBytes( 16 ) );
+            var msg = JSON.stringify({
+                type: "initiate_ln_receive",
+                msg: {
+                    amnt,
+                    state_id,
+                    secret2,
+                }
+            });
+            state.amount_alice_expects_in_next_htlc = amnt;
+            var node = state.node;
+            node.send( 'initiate_ln_receive', msg, recipient, msg_id );
+            if ( !secret ) return;
+            var invoice = await hedgehog_factory.getNote( secret2, state_id );
+            if ( !invoice ) invoice = "no invoice received";
+            var plaintext = {
+                type: "secret_you_need",
+                secret,
+                value: {
+                    thing_needed: JSON.stringify( invoice ),
+                },
+            }
+            var msg = await super_nostr.alt_encrypt( privkey, alices_pubkey, JSON.stringify( plaintext ) );
+            var event = await super_nostr.prepEvent( privkey, msg, 4, [ [ "p", alices_pubkey ] ] );
+            super_nostr.sendEvent( event, state.relays[ 0 ] );
+        }
+    },
+    runReceiveLN: async ( json, event, apikey, privkey, alices_pubkey, relays ) => {
+        var claimed_apikey = json.value.apikey;
+        var real_apikey = apikey;
+        if ( claimed_apikey !== real_apikey ) return console.log( 'someone passed an api key that did not match what was expected' );
+        var secret = json.value.secret;
+        var amount = json.value.amount;
+        var state_id = json.value.state_id;
+        if ( !hedgehog_factory.state.hasOwnProperty( state_id ) ) {
+            var plaintext = {
+                type: "secret_you_need",
+                secret,
+                value: {
+                    thing_needed: JSON.stringify({
+                        error: `no such state id as ${state_id} -- state ids available: ${JSON.stringify( Object.keys( hedgehog_factory.state ) )}`,
+                    }),
+                },
+            }
+            var msg = await super_nostr.alt_encrypt( privkey, alices_pubkey, JSON.stringify( plaintext ) );
+            var event = await super_nostr.prepEvent( privkey, msg, 4, [ [ "p", alices_pubkey ] ] );
+            super_nostr.sendEvent( event, relays[ 0 ] );
+            return;
+        }
+        var do_lightning = true;
+        hedgehog_factory.receive( state_id, do_lightning, amount, secret, alices_pubkey );
+    },
+    runPrepCeremony: async ( json, event, apikey, privkey, alices_pubkey, relays ) => {
+        var claimed_apikey = json.value.apikey;
+        var real_apikey = apikey;
+        if ( claimed_apikey !== real_apikey ) return console.log( 'someone passed an api key that did not match what was expected' );
+        var secret = json.value.secret;
+        var admin_nprofile = json.value.admin_nprofile;
+        var amount = json.value.amount;
+        var sharable_data = await hedgehog_factory.aliceRequestsCeremony( admin_nprofile, amount );
+        var plaintext = {
+            type: "secret_you_need",
+            secret,
+            value: {
+                thing_needed: JSON.stringify( sharable_data ),
+            },
+        }
+        var msg = await super_nostr.alt_encrypt( privkey, alices_pubkey, JSON.stringify( plaintext ) );
+        var event = await super_nostr.prepEvent( privkey, msg, 4, [ [ "p", event.pubkey ] ] );
+        super_nostr.sendEvent( event, relays[ 0 ] );
+    },
+    runGetCeremonyData: async ( json, event, apikey, privkey, alices_pubkey, relays ) => {
+        var claimed_apikey = json.value.apikey;
+        var real_apikey = apikey;
+        if ( claimed_apikey !== real_apikey ) return console.log( 'someone passed an api key that did not match what was expected' );
+        var secret = json.value.secret;
+        var state_id = json.value.state_id;
+        var state = hedgehog_factory.state[ state_id ];
+        var admin_nprofile = json.value.admin_nprofile;
+        var ceremony_data = await hedgehog_factory.aliceRequestsCeremonyData( admin_nprofile, state_id );
+        var plaintext = {
+            type: "secret_you_need",
+            secret,
+            value: {
+                thing_needed: JSON.stringify( ceremony_data ),
+            },
+        }
+        var msg = await super_nostr.alt_encrypt( privkey, alices_pubkey, JSON.stringify( plaintext ) );
+        var event = await super_nostr.prepEvent( privkey, msg, 4, [ [ "p", event.pubkey ] ] );
+        super_nostr.sendEvent( event, relays[ 0 ] );
+    },
+    runStartCeremony: async ( json, event, apikey, privkey, alices_pubkey, relays ) => {
+        var claimed_apikey = json.value.apikey;
+        var real_apikey = apikey;
+        if ( claimed_apikey !== real_apikey ) return console.log( 'someone passed an api key that did not match what was expected' );
+        var secret = json.value.secret;
+        var state_id = json.value.state_id;
+        hedgehog_factory.userStartsCeremony( state_id );
+        var plaintext = {
+            type: "secret_you_need",
+            secret,
+            value: {
+                thing_needed: JSON.stringify( {started: true} ),
+            },
+        }
+        var msg = await super_nostr.alt_encrypt( privkey, alices_pubkey, JSON.stringify( plaintext ) );
+        var event = await super_nostr.prepEvent( privkey, msg, 4, [ [ "p", event.pubkey ] ] );
+        super_nostr.sendEvent( event, relays[ 0 ] );
+    },
+    runSendViaHedgehog: async ( json, event, apikey, privkey, alices_pubkey, relays ) => {
+        var claimed_apikey = json.value.apikey;
+        var real_apikey = apikey;
+        if ( claimed_apikey !== real_apikey ) return console.log( 'someone passed an api key that did not match what was expected' );
+        var secret = json.value.secret;
+        var state_id = json.value.state_id;
+        var do_lightning = false;
+        var invoice = null;
+        var amount = json.value.amount;
+        var data_for_recipient = await hedgehog_factory.send( state_id, do_lightning, invoice, amount );
+        var plaintext = {
+            type: "secret_you_need",
+            secret,
+            value: {
+                thing_needed: JSON.stringify( data_for_recipient ),
+            },
+        }
+        var msg = await super_nostr.alt_encrypt( privkey, alices_pubkey, JSON.stringify( plaintext ) );
+        var event = await super_nostr.prepEvent( privkey, msg, 4, [ [ "p", event.pubkey ] ] );
+        super_nostr.sendEvent( event, relays[ 0 ] );
+    },
+    runReceiveViaHedgehog: async ( json, event, apikey, privkey, alices_pubkey, relays ) => {
+        var claimed_apikey = json.value.apikey;
+        var real_apikey = apikey;
+        if ( claimed_apikey !== real_apikey ) return console.log( 'someone passed an api key that did not match what was expected' );
+        var state_id = json.value.state_id;
+        var do_lightning = false;
+        var amnt = null;
+        var secret = json.value.secret;
+        var info_from_sender = json.value.data_from_sender;
+        var it_worked = await hedgehog_factory.receive( state_id, do_lightning, amnt, secret, alices_pubkey, info_from_sender );
+        var plaintext = {
+            type: "secret_you_need",
+            secret,
+            value: {
+                thing_needed: JSON.stringify( it_worked ),
+            },
+        }
+        var msg = await super_nostr.alt_encrypt( privkey, alices_pubkey, JSON.stringify( plaintext ) );
+        var event = await super_nostr.prepEvent( privkey, msg, 4, [ [ "p", event.pubkey ] ] );
+        super_nostr.sendEvent( event, relays[ 0 ] );
     },
 }
