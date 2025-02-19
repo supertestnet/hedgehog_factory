@@ -1789,7 +1789,7 @@ var hedgehog_factory = {
         node.send( 'payment_complete', msg, recipient, msg_id );
         //TODO: check if the sender is online before trying to settle with them
         var senders_chan_ids = [];
-        opening_info = state.opening_info_for_hedgehog_channels[ sender ];
+        opening_info = state.opening_info_for_hedgehog_channels[ forwarder_pubkey ];
         opening_info.forEach( opener => senders_chan_ids.push( opener.chan_id ) );
         var k; for ( k=0; k<senders_chan_ids.length; k++ ) {
             var chan_id = senders_chan_ids[ k ];
@@ -1801,7 +1801,7 @@ var hedgehog_factory = {
                 state_id,
             }
         });
-        var recipient = sender;
+        var recipient = forwarder_pubkey;
         var node = state.node;
         node.send( 'ready_to_settle', msg, recipient, msg_id );
     },
